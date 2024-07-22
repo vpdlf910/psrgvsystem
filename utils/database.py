@@ -144,14 +144,15 @@ def update_injection_data(idx, injection_time, injection_condition, review):
         connection.close()
 
 def delete_injection_data(idx):
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            sql = "DELETE FROM injection_data WHERE idx = %s"
-            cursor.execute(sql, (idx,))
-        connection.commit()
-    finally:
-        connection.close()
+    # connection = get_db_connection()
+    # try:
+    #     with connection.cursor() as cursor:
+    #         sql = "DELETE FROM injection_data WHERE idx = %s"
+    #         cursor.execute(sql, (idx,))
+    #     connection.commit()
+    # finally:
+    #     connection.close()
+    pass
 
 def insert_injection_data(injection_time, injection_condition, review):
     connection = get_db_connection()
@@ -203,3 +204,25 @@ def delete_manufacturing_data(idx):
     :param idx: The index of the record to delete.
     """
     pass  # Replace with actual implementation
+
+def query_polymer_solvent(date):
+    connection = get_db_connection()
+
+    try:
+        with connection.cursor() as cursor:
+            sql = """
+            SELECT sensor_name,applied_polymer,solvent
+            FROM manufacturing_process
+            WHERE date_of_manufacture = %s
+            """
+            
+            cursor.execute(sql,date)
+            results = cursor.fetchall()
+            
+            
+    except pymysql.MySQLError as e:
+        print(f"Error: {e}")
+    finally:
+        connection.close()
+    
+    return results

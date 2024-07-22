@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QInputDialog, QDialog,
     QDialogButtonBox, QCheckBox, QMessageBox, QScrollArea, QDateEdit, QTimeEdit, QTableWidget, QTableWidgetItem,
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from utils.database import (
     query_sensor_data, query_injection_conditions, fetch_injection_data, update_injection_data,
-    delete_injection_data, insert_injection_data, fetch_manufacturing_data, query_real_time_sensor_data
+    delete_injection_data, insert_injection_data, fetch_manufacturing_data, query_real_time_sensor_data,query_polymer_solvent
 )
 from utils.plot import (
     plot_data_volt, plot_ratio_data_volt, plot_multi_data_volt, plot_static_combine_volt,
@@ -459,32 +460,95 @@ class TSEI_PSRGVSystem(QMainWindow):
     def select_sensor_ids(self):
         dialog = QDialog(self)
         dialog.setWindowTitle('Select Sensor IDs')
+
         layout = QVBoxLayout()
-        sensor_id_vars = []
+        self.sensor_id_vars = []
+
         all_select_checkbox = QCheckBox('All Select')
-        all_select_checkbox.stateChanged.connect(lambda: self.toggle_all_sensor_ids(sensor_id_vars, all_select_checkbox))
+        all_select_checkbox.stateChanged.connect(lambda: self.toggle_all_sensor_ids(self.sensor_id_vars, all_select_checkbox))
         layout.addWidget(all_select_checkbox)
+
         range_select_layout = QHBoxLayout()
         for start in range(1, 41, 10):
             end = start + 9
             range_checkbox = QCheckBox(f'{start}-{end}')
-            range_checkbox.stateChanged.connect(lambda state, start=start, end=end: self.toggle_range_sensor_ids(sensor_id_vars, start, end, state))
+            range_checkbox.stateChanged.connect(lambda state, start=start, end=end: self.toggle_range_sensor_ids(self.sensor_id_vars, start, end, state))
             range_select_layout.addWidget(range_checkbox)
         layout.addLayout(range_select_layout)
+
+        interactive_select_layout = QVBoxLayout()
+        df_list = []
+        for date, start_time, end_time in self.date_time_pairs:
+            date_str = date.toString('yyyy-MM-dd')
+            try:
+                result = query_polymer_solvent(date_str)
+                if result:
+                    df = pd.DataFrame(result)
+                else:
+                    df = pd.DataFrame(columns=['sensor_name', 'applied_polymer', 'solvent'])
+            except Exception as e:
+                print(f"Error: {e}")
+                df = pd.DataFrame(columns=['sensor_name', 'applied_polymer', 'solvent'])
+            df_list.append(df)
+        
+        if df_list:
+            concated_df = pd.concat(df_list, ignore_index=True)
+            polymer_list = concated_df['applied_polymer'].unique()
+            solvent_list = concated_df['solvent'].unique()
+        else:
+            concated_df = pd.DataFrame(columns=['sensor_name', 'applied_polymer', 'solvent'])
+            polymer_list = []
+            solvent_list = []
+
+        def extract_sensor_id(sensor_name):
+            match = re.match(r'.*-S\d+-(\d+)', sensor_name)
+            if match:
+                return int(match.group(1))
+            
+            match = re.match(r'.*-S(\d+)', sensor_name)
+            if match:
+                return int(match.group(1))
+            
+            return None
+
+        concated_df['sensor_id'] = concated_df['sensor_name'].apply(extract_sensor_id)
+
+        polymer_layout = QVBoxLayout()
+        polymer_label = QLabel('Polymers:')
+        polymer_layout.addWidget(polymer_label)
+        for polymer in polymer_list:
+            checkbox = QCheckBox(polymer)
+            checkbox.stateChanged.connect(lambda state, polymer=polymer: self.toggle_polymer_sensor_ids(concated_df, polymer, state))
+            polymer_layout.addWidget(checkbox)
+        interactive_select_layout.addLayout(polymer_layout)
+
+        solvent_layout = QVBoxLayout()
+        solvent_label = QLabel('Solvents:')
+        solvent_layout.addWidget(solvent_label)
+        for solvent in solvent_list:
+            checkbox = QCheckBox(solvent)
+            checkbox.stateChanged.connect(lambda state, solvent=solvent: self.toggle_solvent_sensor_ids(concated_df, solvent, state))
+            solvent_layout.addWidget(checkbox)
+        interactive_select_layout.addLayout(solvent_layout)
+
+        layout.addLayout(interactive_select_layout)
+
         for i in range(4):
             row_layout = QHBoxLayout()
             for j in range(10):
                 checkbox = QCheckBox(str(i * 10 + j + 1))
                 row_layout.addWidget(checkbox)
-                sensor_id_vars.append(checkbox)
+                self.sensor_id_vars.append(checkbox)
             layout.addLayout(row_layout)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.setLayout(layout)
+
         if dialog.exec_() == QDialog.Accepted:
-            self.selected_sensor_id = [i + 1 for i, var in enumerate(sensor_id_vars) if var.isChecked()]
+            self.selected_sensor_id = [i + 1 for i, var in enumerate(self.sensor_id_vars) if var.isChecked()]
             self.sensor_id_list_widget.clear()
             for sensor_id in self.selected_sensor_id:
                 item = QListWidgetItem(f"Sensor ID {sensor_id}")
@@ -498,6 +562,61 @@ class TSEI_PSRGVSystem(QMainWindow):
     def toggle_range_sensor_ids(self, sensor_id_vars, start, end, state):
         for i in range(start - 1, end):
             sensor_id_vars[i].setChecked(state)
+
+    def toggle_polymer_sensor_ids(self, df, polymer, state):
+        sensor_ids = df[df['applied_polymer'] == polymer]['sensor_id'].tolist()
+        for checkbox in self.sensor_id_vars:
+            sensor_id = int(checkbox.text())
+            if sensor_id in sensor_ids:
+                checkbox.setChecked(state)
+
+    def toggle_solvent_sensor_ids(self, df, solvent, state):
+        sensor_ids = df[df['solvent'] == solvent]['sensor_id'].tolist()
+        for checkbox in self.sensor_id_vars:
+            sensor_id = int(checkbox.text())
+            if sensor_id in sensor_ids:
+                checkbox.setChecked(state)
+
+    def select_sensor_ids_old(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Select Sensor IDs')
+
+        layout = QVBoxLayout()
+        sensor_id_vars = []
+
+        all_select_checkbox = QCheckBox('All Select')
+        all_select_checkbox.stateChanged.connect(lambda: self.toggle_all_sensor_ids(sensor_id_vars, all_select_checkbox))
+        layout.addWidget(all_select_checkbox)
+
+        range_select_layout = QHBoxLayout()
+        for start in range(1, 41, 10):
+            end = start + 9
+            range_checkbox = QCheckBox(f'{start}-{end}')
+            range_checkbox.stateChanged.connect(lambda state, start=start, end=end: self.toggle_range_sensor_ids(sensor_id_vars, start, end, state))
+            range_select_layout.addWidget(range_checkbox)
+        layout.addLayout(range_select_layout)
+
+        for i in range(4):
+            row_layout = QHBoxLayout()
+            for j in range(10):
+                checkbox = QCheckBox(str(i * 10 + j + 1))
+                row_layout.addWidget(checkbox)
+                sensor_id_vars.append(checkbox)
+            layout.addLayout(row_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.setLayout(layout)
+
+        if dialog.exec_() == QDialog.Accepted:
+            self.selected_sensor_id = [i + 1 for i, var in enumerate(sensor_id_vars) if var.isChecked()]
+            self.sensor_id_list_widget.clear()
+            for sensor_id in self.selected_sensor_id:
+                item = QListWidgetItem(f"Sensor ID {sensor_id}")
+                self.sensor_id_list_widget.addItem(item)
+
 
     def visualize_graph(self, plot_func):
         try:
@@ -573,8 +692,9 @@ class TSEI_PSRGVSystem(QMainWindow):
         self.date_time_pairs = []
 
         self.sensor_id_button = QPushButton('Sensor ID 선택')
-
-        self.sensor_id_button.clicked.connect(self.select_sensor_ids)
+        
+        #self.date_time_pairs = [(QDateTime.currentDateTime().date(),0,0)]
+        self.sensor_id_button.clicked.connect(self.select_sensor_ids_old)
         self.sensor_id_scroll_area.setWidget(self.sensor_id_list_widget)
         self.sensor_id_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
         self.right_frame.addWidget(self.sensor_id_button)
