@@ -12,7 +12,7 @@ EXPIRY_DATE = os.getenv('EXPIRY_DATE')
 # 사용자 정보 설정
 valid_id = USER_ID
 valid_pw = USER_PASSWORD
-expiry_date = datetime.strptime(EXPIRY_DATE,'%Y-%m-%d')
+expiry_date = datetime.strptime(EXPIRY_DATE, '%Y-%m-%d')
 
 class LoginWindow(QDialog):
     def __init__(self, on_login_success):
