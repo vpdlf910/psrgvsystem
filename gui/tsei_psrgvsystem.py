@@ -21,7 +21,7 @@ from utils.plot import (
     plot_data_volt, plot_ratio_data_volt, plot_multi_data_volt, plot_static_combine_volt,
     plot_ratio_combine_volt, plot_data_rs, plot_ratio_data_rs, plot_multi_data_rs, plot_static_combine_rs,
     plot_ratio_combine_rs,plot_data_volt_small, plot_ratio_data_volt_small, plot_multi_data_volt_small,
-    plot_data_rs_small, plot_ratio_data_rs_small, plot_multi_data_rs_small,
+    plot_data_rs_small, plot_ratio_data_rs_small, plot_multi_data_rs_small,plot_data_volt_small_separate,plot_data_rs_small_separate
     
 )
 import matplotlib.pyplot as plt
@@ -841,14 +841,16 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         graphic_menu_volt_small.addAction("Static Graph (Volt)", self.static_graphic_volt_small)
         graphic_menu_volt_small.addAction("Ratio Graph (Volt)", self.ratio_graphic_volt_small)
         graphic_menu_volt_small.addAction('Multi Graph (Volt)', self.multi_graphic_volt_small)
+        graphic_menu_volt_small.addAction("Separate Graph (Volt)", self.static_graphic_volt_small_separate)
 
         graphic_menu_rs_small = self.menu_bar.addMenu("RS_Graphic")
         graphic_menu_rs_small.addAction("Static Graph (Rs)", self.static_graphic_rs_small)
         graphic_menu_rs_small.addAction("Ratio Graph (Rs)", self.ratio_graphic_rs_small)
         graphic_menu_rs_small.addAction('Multi Graph (Rs)', self.multi_graphic_rs_small)
+        graphic_menu_rs_small.addAction("Separate Graph (Rs)", self.static_graphic_rs_small_separate)
 
         self.menu_bar.addAction("Reset", self.reset_small)
-        self.menu_bar.addAction("Chamber Information", self.chamber_information_options_small)
+        self.menu_bar.addAction("Chamber Information", self.chamber_information_options)
         self.menu_bar.addAction("Manufacturing Process", self.manufacturing_process_options_small)
         self.menu_bar.addAction("Real-time Analysis", self.real_time_analysis_options_small)
 
@@ -884,6 +886,11 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.clear_layout_small(self.right_frame)
         self.create_graphic_options_small('Multi Visualization (Volt)', self.visualize_multi_volt_small)
 
+    def static_graphic_volt_small_separate(self):
+        self.clear_layout_small(self.left_frame)
+        self.clear_layout_small(self.right_frame)
+        self.create_graphic_options_small('Separate Visualization (Volt)', self.visualize_static_volt_small_separate)
+
     def static_graphic_rs_small(self):
         self.clear_layout_small(self.left_frame)
         self.clear_layout_small(self.right_frame)
@@ -898,6 +905,11 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.clear_layout_small(self.left_frame)
         self.clear_layout_small(self.right_frame)
         self.create_graphic_options_small('Multi Visualization (Rs)', self.visualize_multi_rs_small)
+
+    def static_graphic_rs_small_separate(self):
+        self.clear_layout_small(self.left_frame)
+        self.clear_layout_small(self.right_frame)
+        self.create_graphic_options_small('Separate Visualization (Rs)', self.visualize_static_rs_small_separate)
 
     def reset_small(self):
         self.clear_layout_small(self.left_frame)
@@ -914,14 +926,14 @@ class TSEI_PSRGVSystem_small(QMainWindow):
                 else:
                     self.clear_layout_small(item.layout())
 
-    def chamber_information_options_small(self):
+    def chamber_information_options(self):
         self.clear_layout_small(self.left_frame)
         self.clear_layout_small(self.right_frame)
         layout = QVBoxLayout()
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Review'])
-        self.load_injection_data_small()
+        self.load_injection_data()
         self.table.setColumnWidth(0, 50)
         self.table.setColumnWidth(1, 200)
         self.table.setColumnWidth(2, 200)
@@ -929,10 +941,10 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         layout.addWidget(self.table)
         button_layout = QHBoxLayout()
         buttons = [
-            ("Add", self.add_injection_data_small),
-            ("Update", self.update_injection_data_small),
-            ("Delete", self.delete_injection_data_small),
-            ("Load", self.load_injection_data_small)
+            ("Add", self.add_injection_data),
+            ("Update", self.update_injection_data),
+            ("Delete", self.delete_injection_data),
+            ("Load", self.load_injection_data)
         ]
         for name, func in buttons:
             button = QPushButton(name)
@@ -1046,7 +1058,17 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
     def load_injection_data_small(self):
-        injection_data = fetch_injection_data_small()
+        injection_data = fetch_injection_data()
+        self.table.setRowCount(len(injection_data))
+        for row_index, row_data in enumerate(injection_data):
+            self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
+            self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
+            self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
+            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['review'])))
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+    def load_injection_data(self):
+        injection_data = fetch_injection_data()
         self.table.setRowCount(len(injection_data))
         for row_index, row_data in enumerate(injection_data):
             self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
@@ -1119,6 +1141,43 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         visualize_button = QPushButton(button_text)
         visualize_button.clicked.connect(visualize_func)
         self.left_frame.addWidget(visualize_button)
+    def add_injection_data(self):
+        self.modify_injection_data(insert_injection_data)
+
+    def update_injection_data(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            row = selected_rows[0].row()
+            idx = self.table.item(row, 0).text()
+            self.modify_injection_data(update_injection_data, idx)
+        else:
+            QMessageBox.warning(self, "No selection", "Please select a row to update.")
+
+    def delete_injection_data(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            for row in selected_rows:
+                idx = self.table.item(row.row(), 0).text()
+                delete_injection_data(idx)
+            self.load_injection_data()
+        else:
+            QMessageBox.warning(self, "No selection", "Please select a row to delete.")
+
+    def modify_injection_data(self, db_func, idx=None):
+        injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
+        if not ok1:
+            return
+        injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
+        if not ok2:
+            return
+        review, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
+        if not ok3:
+            review = None
+        if idx is None:
+            db_func(injection_time, injection_condition, review)
+        else:
+            db_func(idx, injection_time, injection_condition, review)
+        self.load_injection_data()
 
     def add_date_small(self):
         selected_date = self.select_date_small()
@@ -1371,9 +1430,9 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         combined_start_time = min(start_times)
         combined_end_time = max(end_times)
         sensor_ids = [sensor_id for sensor_list in self.selected_sensor_data.values() for sensor_id in sensor_list]
-        injection_times = query_injection_conditions_small(combined_start_time, combined_end_time, sensor_ids)
+        injection_times = query_injection_conditions(combined_start_time, combined_end_time, sensor_ids)
 
-        plot_func(self.selected_sensor_data, combined_start_time, combined_end_time, injection_times, self.date_time_pairs)
+        plot_func(self.selected_sensor_data, combined_start_time, combined_end_time, injection_times, self.date_time_pairs,chamber_type='4 Channel')
 
 
     def visualize_static_volt_small(self):
@@ -1393,6 +1452,12 @@ class TSEI_PSRGVSystem_small(QMainWindow):
 
     def visualize_multi_rs_small(self):
         self.visualize_graph_small(plot_multi_data_rs_small)
+
+    def visualize_static_volt_small_separate(self):
+        self.visualize_graph_small(plot_data_volt_small_separate)
+    
+    def visualize_static_rs_small_separate(self):
+        self.visualize_graph_small(plot_data_rs_small_separate)
 
 
     def real_time_analysis_options_small(self):
@@ -1485,7 +1550,7 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         num_chambers = len(self.selected_sensor_data)
         num_cols = 2
         num_rows = (num_chambers + 1) // num_cols
-        fig, axes = plt.subplots(num_rows, num_cols)
+        fig, axes = plt.subplots(num_rows, num_cols, figsize=(self.width()/150, self.height()/100), tight_layout=True, figure=self.figure)
 
         axes = axes.flatten() if isinstance(axes, np.ndarray) else [axes]
 

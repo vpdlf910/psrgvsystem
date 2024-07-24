@@ -102,19 +102,26 @@ def query_injection_conditions(start_time: datetime, end_time: datetime, sensor_
     try:
         with connection.cursor() as cursor:
             sql = """
-            SELECT injection_condition, injection_time
+            SELECT chamber_id, chamber_type, injection_condition, injection_time
             FROM injection_data
-            WHERE injection_time BETWEEN %s AND %s 
+            WHERE injection_time BETWEEN %s AND %s
             """
             
             cursor.execute(sql, (start_time, end_time))
             results = cursor.fetchall()
             for row in results:
-                condition = row['injection_condition']
+                chamber_id = row['chamber_id']
+                chamber_type = row['chamber_type']
+                injection_condition = row['injection_condition']
                 time = row['injection_time']
-                if condition not in injection_data:
-                    injection_data[condition] = []
-                injection_data[condition].append(time)
+                
+                if chamber_id not in injection_data:
+                    injection_data[chamber_id] = {}
+                if chamber_type not in injection_data[chamber_id]:
+                    injection_data[chamber_id][chamber_type] = {}
+                if injection_condition not in injection_data[chamber_id][chamber_type]:
+                    injection_data[chamber_id][chamber_type][injection_condition] = []
+                injection_data[chamber_id][chamber_type][injection_condition].append(time)
             
     except pymysql.MySQLError as e:
         print(f"Error: {e}")
