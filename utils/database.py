@@ -234,8 +234,8 @@ def query_polymer_solvent(date):
 def get_db_connection_small():
     try:
         connection = pymysql.connect(
-            host='127.0.0.1',
-            user='root',
+            host='192.168.0.43',
+            user='pc_program',
             password='tsei1234',
             database='sensor_evaluation_system_4chamber',
             port=3306,
@@ -277,29 +277,29 @@ def query_sensor_data_small(start_time: datetime, end_time: datetime, chamber_se
 
     return sensor_data
 
-def query_real_time_sensor_data_small(start_time: datetime, end_time: datetime, sensor_ids: list):
-    connection = pymysql.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DATABASE,
-        cursorclass=DictCursor
-    )
+def query_real_time_sensor_data_small(start_time: datetime, end_time: datetime, chamber_sensor_data: dict):
+    connection = get_db_connection_small()
 
     sensor_data = []
-    placeholders = ','.join(['%s'] * len(sensor_ids))
+    chambers = list(chamber_sensor_data.keys())
+    sensors = [sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids]
+
+    chamber_placeholders = ','.join(['%s'] * len(chambers))
+    sensor_placeholders = ','.join(['%s'] * len(sensors))
+    
     try:
         with connection.cursor() as cursor:
-            sql = """
-            SELECT sensor_id, volt, reg_date
+            sql = f"""
+            SELECT chamber_id, sensor_id, rs, volt, reg_date
             FROM sensor_data 
             WHERE reg_date BETWEEN %s AND %s 
-            AND sensor_id IN ({})
-            """.format(placeholders)
-        
-            cursor.execute(sql, [start_time, end_time] + sensor_ids)
+            AND chamber_id IN ({chamber_placeholders})
+            AND sensor_id IN ({sensor_placeholders})
+            """
+
+            cursor.execute(sql, [start_time, end_time] + chambers + sensors)
             sensor_data = cursor.fetchall()
-                
+
     except pymysql.MySQLError as e:
         print(f"Error: {e}")
     finally:

@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import numpy as np
 from functools import partial
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QInputDialog, QDialog,
@@ -11,17 +12,17 @@ from PyQt5.QtCore import Qt, QDateTime, QDate, QTimer
 from datetime import datetime, timedelta
 import pandas as pd
 from utils.database import (
-    query_sensor_data, query_injection_conditions, fetch_injection_data, update_injection_data,
+    query_injection_conditions, fetch_injection_data, update_injection_data,
     delete_injection_data, insert_injection_data, fetch_manufacturing_data, query_real_time_sensor_data,query_polymer_solvent,
-    query_sensor_data_small, query_injection_conditions_small, fetch_injection_data_small, update_injection_data_small,
+     query_injection_conditions_small, fetch_injection_data_small, update_injection_data_small,
     delete_injection_data_small, insert_injection_data_small, fetch_manufacturing_data_small, query_real_time_sensor_data_small,query_polymer_solvent_small,fetch_chamber_data
 )
 from utils.plot import (
     plot_data_volt, plot_ratio_data_volt, plot_multi_data_volt, plot_static_combine_volt,
     plot_ratio_combine_volt, plot_data_rs, plot_ratio_data_rs, plot_multi_data_rs, plot_static_combine_rs,
-    plot_ratio_combine_rs,plot_data_volt_small, plot_ratio_data_volt_small, plot_multi_data_volt_small, plot_static_combine_volt_small,
-    plot_ratio_combine_volt_small, plot_data_rs_small, plot_ratio_data_rs_small, plot_multi_data_rs_small, plot_static_combine_rs_small,
-    plot_ratio_combine_rs_small
+    plot_ratio_combine_rs,plot_data_volt_small, plot_ratio_data_volt_small, plot_multi_data_volt_small,
+    plot_data_rs_small, plot_ratio_data_rs_small, plot_multi_data_rs_small,
+    
 )
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -827,6 +828,10 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.sensor_id_scroll_area = QScrollArea()
         self.sensor_id_list_widget = QListWidget()
         self.selected_sensor_data = {}
+        self.time_pairs = []
+        self.date_time_pairs = []
+        self.start_time = None  # 초기화
+        self.end_time = None  # 초기화
         
         
 
@@ -836,14 +841,12 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         graphic_menu_volt_small.addAction("Static Graph (Volt)", self.static_graphic_volt_small)
         graphic_menu_volt_small.addAction("Ratio Graph (Volt)", self.ratio_graphic_volt_small)
         graphic_menu_volt_small.addAction('Multi Graph (Volt)', self.multi_graphic_volt_small)
-        graphic_menu_volt_small.addAction('Static Combine Graph (Volt)', self.static_combine_graphic_volt_small)
-        graphic_menu_volt_small.addAction('Ratio Combine Graph (Volt)', self.ratio_combine_graphic_volt_small)
+
         graphic_menu_rs_small = self.menu_bar.addMenu("RS_Graphic")
         graphic_menu_rs_small.addAction("Static Graph (Rs)", self.static_graphic_rs_small)
         graphic_menu_rs_small.addAction("Ratio Graph (Rs)", self.ratio_graphic_rs_small)
         graphic_menu_rs_small.addAction('Multi Graph (Rs)', self.multi_graphic_rs_small)
-        graphic_menu_rs_small.addAction('Static Combine Graph (Rs)', self.static_combine_graphic_rs_small)
-        graphic_menu_rs_small.addAction('Ratio Combine Graph (Rs)', self.ratio_combine_graphic_rs_small)
+
         self.menu_bar.addAction("Reset", self.reset_small)
         self.menu_bar.addAction("Chamber Information", self.chamber_information_options_small)
         self.menu_bar.addAction("Manufacturing Process", self.manufacturing_process_options_small)
@@ -881,16 +884,6 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.clear_layout_small(self.right_frame)
         self.create_graphic_options_small('Multi Visualization (Volt)', self.visualize_multi_volt_small)
 
-    def static_combine_graphic_volt_small(self):
-        self.clear_layout_small(self.left_frame)
-        self.clear_layout_small(self.right_frame)
-        self.create_graphic_options_small('Static Combine Visualization (Volt)', self.visualize_static_combine_volt_small)
-
-    def ratio_combine_graphic_volt_small(self):
-        self.clear_layout_small(self.left_frame)
-        self.clear_layout_small(self.right_frame)
-        self.create_graphic_options_small('Ratio Combine Visualization (Volt)', self.visualize_ratio_combine_volt_small)
-
     def static_graphic_rs_small(self):
         self.clear_layout_small(self.left_frame)
         self.clear_layout_small(self.right_frame)
@@ -905,16 +898,6 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.clear_layout_small(self.left_frame)
         self.clear_layout_small(self.right_frame)
         self.create_graphic_options_small('Multi Visualization (Rs)', self.visualize_multi_rs_small)
-
-    def static_combine_graphic_rs_small(self):
-        self.clear_layout_small(self.left_frame)
-        self.clear_layout_small(self.right_frame)
-        self.create_graphic_options_small('Static Combine Visualization (Rs)', self.visualize_static_combine_rs_small)
-
-    def ratio_combine_graphic_rs_small(self):
-        self.clear_layout_small(self.left_frame)
-        self.clear_layout_small(self.right_frame)
-        self.create_graphic_options_small('Ratio Combine Visualization (Rs)', self.visualize_ratio_combine_rs_small)
 
     def reset_small(self):
         self.clear_layout_small(self.left_frame)
@@ -1241,6 +1224,12 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         else:
             self.date_time_pairs = [dt for dt in self.date_time_pairs if dt[0] != self.current_date]
         return selected_times
+    def init_default_time_pairs(self):
+        end_time = datetime.now()
+        start_time = end_time - timedelta(hours=1)
+        self.start_time = start_time
+        self.end_time = end_time
+        self.date_time_pairs = [(self.start_time.date(), self.start_time.time(), self.end_time.time())]
 
     
     def select_sensor_ids_small(self):
@@ -1253,6 +1242,12 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         all_select_checkbox = QCheckBox('All Select')
         all_select_checkbox.stateChanged.connect(lambda: self.toggle_all_sensor_ids_small(self.sensor_id_vars, all_select_checkbox))
         layout.addWidget(all_select_checkbox)
+
+        # 저장된 start_time과 end_time을 사용하여 date_time_pairs를 생성
+        if not self.date_time_pairs:
+            self.init_default_time_pairs()
+
+        print(f"Generated date_time_pairs: {self.date_time_pairs}")
 
         # date_time_pairs에서 시작 시간과 종료 시간 가져오기
         time_pairs = []
@@ -1348,46 +1343,6 @@ class TSEI_PSRGVSystem_small(QMainWindow):
             if sensor_id in sensor_ids:
                 checkbox.setChecked(state)
 
-    def select_sensor_ids_old_small(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle('Select Sensor IDs')
-
-        layout = QVBoxLayout()
-        sensor_id_vars = []
-
-        all_select_checkbox = QCheckBox('All Select')
-        all_select_checkbox.stateChanged.connect(lambda: self.toggle_all_sensor_ids_small(sensor_id_vars, all_select_checkbox))
-        layout.addWidget(all_select_checkbox)
-
-        range_select_layout = QHBoxLayout()
-        for start in range(1, 41, 10):
-            end = start + 9
-            range_checkbox = QCheckBox(f'{start}-{end}')
-            range_checkbox.stateChanged.connect(lambda state, start=start, end=end: self.toggle_range_sensor_ids_small(sensor_id_vars, start, end, state))
-            range_select_layout.addWidget(range_checkbox)
-        layout.addLayout(range_select_layout)
-
-        for i in range(4):
-            row_layout = QHBoxLayout()
-            for j in range(10):
-                checkbox = QCheckBox(str(i * 10 + j + 1))
-                row_layout.addWidget(checkbox)
-                sensor_id_vars.append(checkbox)
-            layout.addLayout(row_layout)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        dialog.setLayout(layout)
-
-        if dialog.exec_() == QDialog.Accepted:
-            self.selected_sensor_id = [i + 1 for i, var in enumerate(sensor_id_vars) if var.isChecked()]
-            self.sensor_id_list_widget.clear()
-            for sensor_id in self.selected_sensor_id:
-                item = QListWidgetItem(f"Sensor ID {sensor_id}")
-                self.sensor_id_list_widget.addItem(item)
-
 
     def visualize_graph_small(self, plot_func):
         try:
@@ -1430,12 +1385,6 @@ class TSEI_PSRGVSystem_small(QMainWindow):
     def visualize_multi_volt_small(self):
         self.visualize_graph_small(plot_multi_data_volt_small)
 
-    def visualize_static_combine_volt_small(self):
-        self.visualize_graph_small(plot_static_combine_volt_small)
-
-    def visualize_ratio_combine_volt_small(self):
-        self.visualize_graph_small(plot_ratio_combine_volt_small)
-
     def visualize_static_rs_small(self):
         self.visualize_graph_small(plot_data_rs_small)
 
@@ -1445,11 +1394,6 @@ class TSEI_PSRGVSystem_small(QMainWindow):
     def visualize_multi_rs_small(self):
         self.visualize_graph_small(plot_multi_data_rs_small)
 
-    def visualize_static_combine_rs_small(self):
-        self.visualize_graph_small(plot_static_combine_rs_small)
-
-    def visualize_ratio_combine_rs_small(self):
-        self.visualize_graph_small(plot_ratio_combine_rs_small)
 
     def real_time_analysis_options_small(self):
         self.clear_layout_small(self.left_frame)
@@ -1467,7 +1411,7 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.sensor_id_button = QPushButton('Sensor ID 선택')
         
         #self.date_time_pairs = [(QDateTime.currentDateTime().date(),0,0)]
-        self.sensor_id_button.clicked.connect(self.select_sensor_ids_old_small)
+        self.sensor_id_button.clicked.connect(self.select_sensor_ids_small)
         self.sensor_id_scroll_area.setWidget(self.sensor_id_list_widget)
         self.sensor_id_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
         self.right_frame.addWidget(self.sensor_id_button)
@@ -1525,18 +1469,57 @@ class TSEI_PSRGVSystem_small(QMainWindow):
             QMessageBox.critical(self, "Invalid input", "적어도 하나의 Sensor ID를 선택해 주세요.")
             return
 
-        sensor_ids = [sensor_id for sensor_list in self.selected_sensor_data.values() for sensor_id in sensor_list]
-        data = query_real_time_sensor_data_small(start_time, end_time, sensor_ids)
+        data = query_real_time_sensor_data_small(start_time, end_time, self.selected_sensor_data)
+        if not data:
+            print("No data available for plotting.")
+            return
 
-        self.ax.clear()
-        for chamber_id, sensor_list in self.selected_sensor_data.items():
+        df = pd.DataFrame(data)
+        if df.empty:
+            print("DataFrame is empty after loading data.")
+            return
+
+        df['reg_date'] = pd.to_datetime(df['reg_date'])
+        df['time_dt'] = pd.to_datetime(df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
+
+        num_chambers = len(self.selected_sensor_data)
+        num_cols = 2
+        num_rows = (num_chambers + 1) // num_cols
+        fig, axes = plt.subplots(num_rows, num_cols)
+
+        axes = axes.flatten() if isinstance(axes, np.ndarray) else [axes]
+
+        for i, (chamber_id, sensor_list) in enumerate(self.selected_sensor_data.items()):
+            if i >= len(axes):
+                break
+            ax = axes[i]
+            chamber_df = df[df['chamber_id'] == chamber_id]
+
             for sensor_id in sensor_list:
-                sensor_data = [entry for entry in data if entry['sensor_id'] == sensor_id]
-                times = [entry['reg_date'] for entry in sensor_data]
-                volts = [entry['volt'] for entry in sensor_data]
-                self.ax.plot(times, volts, label=f"Chamber {chamber_id} - Sensor ID {sensor_id}")
+                sensor_df = chamber_df[chamber_df['sensor_id'] == sensor_id]
+                if sensor_df.empty:
+                    print(f"No data for sensor ID {sensor_id} in chamber ID {chamber_id}.")
+                    continue
 
-        self.ax.set_title("Real-time Voltage Data")
-        self.ax.set_xlabel("Time")
-        self.ax.set_ylabel("Voltage")
+                if 'volt' not in sensor_df.columns:
+                    print(f"Column 'volt' not found in sensor data for sensor ID {sensor_id} in chamber ID {chamber_id}.")
+                    continue
+
+                sensor_df = sensor_df.sort_values(by='time_dt')
+                ax.plot(sensor_df['time_dt'], sensor_df['volt'], label=f'Sensor ID {sensor_id}')
+
+            ax.set_title(f'Chamber {chamber_id} Data')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Voltage')
+            ax.legend(loc='best', fontsize='small')
+            ax.tick_params(axis='x', rotation=45)
+
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+
+        fig.tight_layout()
+        self.canvas.figure = fig
         self.canvas.draw()
+
+        self.start_time = start_time
+        self.end_time = end_time

@@ -15,6 +15,7 @@ from sklearn.preprocessing import MinMaxScaler
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout,QLabel
 from matplotlib.collections import PathCollection
+from matplotlib.dates import HourLocator, MinuteLocator, DateFormatter
 
 # 한글 폰트 설정
 font_path = "C:/Windows/Fonts/malgun.ttf"  # Windows의 경우
@@ -511,8 +512,6 @@ class DatabaseQuerySmall:
 # 사용 예제
 db_query_small = DatabaseQuerySmall()
 
-
-
 def prepare_data_small(chamber_sensor_data, date_time_pairs):
     print(f"prepare_data_small 호출: chamber_sensor_data={chamber_sensor_data}, date_time_pairs={date_time_pairs}")  # 디버깅 출력
     sensor_data = []
@@ -555,9 +554,9 @@ def configure_ax_small(ax, combined_start_time, combined_end_time, injection_tim
     ax.set_ylabel('avg_volt')
     ax.legend(loc='best', fontsize='small')
 
-    ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))  # 시간 간격 설정
-    ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))  # 15분 간격 설정
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    ax.xaxis.set_major_locator(HourLocator(interval=1))  # 시간 간격 설정
+    ax.xaxis.set_minor_locator(MinuteLocator(interval=15))  # 15분 간격 설정
+    ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
     ax.set_xlim(combined_start_time, combined_end_time)
     ax.tick_params(axis='x', rotation=45)
 
@@ -701,90 +700,6 @@ def plot_sensor_data_by_chamber(chamber_dataframes, combined_start_time, combine
     sensor_data_plot_window_small = SensorDataPlotWindowSmall(chamber_dataframes, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col, minmax_transform, parent)
     sensor_data_plot_window_small.show()
 
-def plot_sensor_combine_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_volt', minmax_transform=False, parent=None):
-    class SensorCombinePlotWindowSmall(PlotWindowSmall):
-        def __init__(self, chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col, minmax_transform, parent=None):
-            self.chamber_sensor_data = chamber_sensor_data
-            self.filtered_df = filtered_df
-            self.combined_start_time = combined_start_time
-            self.combined_end_time = combined_end_time
-            self.injection_times = injection_times
-            self.date_time_pairs = date_time_pairs
-            self.minmax_transform = minmax_transform
-            self.y_col = y_col
-            self.transformer = MinMaxScaler() if minmax_transform else None
-            super().__init__(parent, title="Combined Sensor Data Plot")
-            self.plot()
-
-        def plot(self):
-            ax = self.canvas.figure.add_subplot(1, 1, 1)
-            for chamber_id, sensor_ids in self.chamber_sensor_data.items():
-                for sensor_id in sensor_ids:
-                    for date, start_time, end_time in self.date_time_pairs:
-                        sensor_df = self.filtered_df[(self.filtered_df['sensor_id'] == sensor_id) & (self.filtered_df['reg_date'].dt.date == date.toPyDate())]
-                        if sensor_df.empty:
-                            continue
-                        if self.minmax_transform:
-                            sensor_df.loc[:, f'{self.y_col}_minmax'] = self.transformer.fit_transform(sensor_df[[self.y_col]])
-                            y_col = f'{self.y_col}_minmax'
-                        else:
-                            y_col = self.y_col
-                        sensor_df.loc[:, 'time_dt'] = pd.to_datetime(sensor_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-                        sns.lineplot(data=sensor_df, x='time_dt', y=y_col, label=f'Chamber {chamber_id} - Sensor ID {sensor_id}', ax=ax, picker=5)
-                        y_min, y_max = ax.get_ylim()
-                        for date, _, _ in self.date_time_pairs:
-                            date_str = date.toString("yyyy-MM-dd")
-                            configure_ax_small(ax, self.combined_start_time, self.combined_end_time, self.injection_times, y_max, date_str)
-                        ax.set_title('Combined Sensor Data')
-                        ax.legend(bbox_to_anchor=(0.1, 1.15), loc='upper left', ncol=1)
-                        ax.set_ylabel(y_col)
-                    
-            self.canvas.draw()
-
-    global sensor_combine_plot_window_small
-    sensor_combine_plot_window_small = SensorCombinePlotWindowSmall(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col, minmax_transform, parent)
-    sensor_combine_plot_window_small.show()
-
-def plot_static_combine_volt_small(chamber_sensor_data: dict, combined_start_time: datetime, combined_end_time: datetime, injection_times: dict, date_time_pairs: list, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    filtered_df.loc[:, 'time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
-    combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
-    combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
-
-    plot_sensor_combine_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_volt', minmax_transform=False, parent=parent)
-
-def plot_static_combine_rs_small(chamber_sensor_data: dict, combined_start_time: datetime, combined_end_time: datetime, injection_times: dict, date_time_pairs: list, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    filtered_df.loc[:, 'time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
-    combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
-    combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
-
-    plot_sensor_combine_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_rs', minmax_transform=False, parent=parent)
-
-def plot_ratio_combine_volt_small(chamber_sensor_data: dict, combined_start_time: datetime, combined_end_time: datetime, injection_times: dict, date_time_pairs: list, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    filtered_df.loc[:, 'time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
-    combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
-    combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
-
-    plot_sensor_combine_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_volt', minmax_transform=True, parent=parent)
-
-def plot_ratio_combine_rs_small(chamber_sensor_data: dict, combined_start_time: datetime, combined_end_time: datetime, injection_times: dict, date_time_pairs: list, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    filtered_df.loc[:, 'time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
-    combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
-    combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
-
-    plot_sensor_combine_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_rs', minmax_transform=True, parent=parent)
-
 def plot_data_volt_small(chamber_sensor_data, combined_start_time, combined_end_time, injection_times, date_time_pairs, parent=None):
     chamber_dataframes = prepare_data_small(chamber_sensor_data, date_time_pairs)
     if not chamber_dataframes:
@@ -797,41 +712,46 @@ def plot_data_volt_small(chamber_sensor_data, combined_start_time, combined_end_
     plot_sensor_data_by_chamber(chamber_dataframes, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_volt', minmax_transform=False, parent=parent)
 
 def plot_data_rs_small(chamber_sensor_data: dict, combined_start_time: datetime, combined_end_time: datetime, injection_times: dict, date_time_pairs: list, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    filtered_df.loc[:, 'time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
+    chamber_dataframes = prepare_data_small(chamber_sensor_data, date_time_pairs)
+    if not chamber_dataframes:
+        print("No data available for plotting.")
+        return
+    
     combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
     combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
 
-    plot_sensor_data_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_rs', minmax_transform=False, parent=parent)
+    plot_sensor_data_by_chamber(chamber_dataframes, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_rs', minmax_transform=False, parent=parent)
 
 def plot_ratio_data_volt_small(chamber_sensor_data: dict, combined_start_time: datetime, combined_end_time: datetime, injection_times: dict, date_time_pairs: list, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    filtered_df.loc[:, 'time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
+    chamber_dataframes = prepare_data_small(chamber_sensor_data, date_time_pairs)
+    if not chamber_dataframes:
+        print("No data available for plotting.")
+        return
+    
     combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
     combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
 
-    plot_sensor_data_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_volt', minmax_transform=True, parent=parent)
+    plot_sensor_data_by_chamber(chamber_dataframes, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_volt', minmax_transform=True, parent=parent)
     
 def plot_ratio_data_rs_small(chamber_sensor_data: dict, combined_start_time: datetime, combined_end_time: datetime, injection_times: dict, date_time_pairs: list, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    filtered_df.loc[:, 'time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
+    chamber_dataframes = prepare_data_small(chamber_sensor_data, date_time_pairs)
+    if not chamber_dataframes:
+        print("No data available for plotting.")
+        return
+    
     combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
     combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
 
-    plot_sensor_data_small(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_rs', minmax_transform=True, parent=parent)
+    plot_sensor_data_by_chamber(chamber_dataframes, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col='avg_rs', minmax_transform=True, parent=parent)
 
 def plot_multi_data_volt_small(chamber_sensor_data, combined_start_time, combined_end_time, injection_times, date_time_pairs, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
+    chamber_dataframes = prepare_data_small(chamber_sensor_data, date_time_pairs)
+    if not chamber_dataframes:
+        print("No data available for plotting.")
+        return
+    
     transformer = MinMaxScaler()
-    filtered_df['time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-
+    
     combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
     combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
 
@@ -840,29 +760,32 @@ def plot_multi_data_volt_small(chamber_sensor_data, combined_start_time, combine
             super().__init__(parent, title="Multi Data Plot")
             self.current_pair_index = 0
             self.date_time_pairs = date_time_pairs
-            self.plot(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
+            self.plot(chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
             self.back_button.clicked.connect(self.prev_pair)
             self.next_button.clicked.connect(self.next_pair)
 
-        def plot(self, chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, current_pair):
+        def plot(self, chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, current_pair):
             self.canvas.figure.clf()
             date, start_time, end_time = current_pair
-            date_filtered_df = filtered_df[filtered_df['reg_date'].dt.date == date.toPyDate()]
-            num_subplots = (len([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids]) - 1) // 5 + 1
-            num_subplots = min(num_subplots, 8)
+            num_chambers = len(chamber_sensor_data)
             num_cols = 2
-            num_rows = (num_subplots + 1) // num_cols
+            num_rows = (num_chambers + 1) // num_cols
             fig = self.canvas.figure
             axes = []
-            for i in range(1, num_subplots + 1):
-                ax = fig.add_subplot(num_rows, num_cols, i)
+
+            for i in range(num_chambers):
+                ax = fig.add_subplot(num_rows, num_cols, i + 1)
                 axes.append(ax)
 
-            def plot_lines(ax, sensor_ids):
+            def plot_chamber(ax, chamber_id, sensor_ids):
                 for sensor_id in sensor_ids:
-                    sensor_df = date_filtered_df[date_filtered_df['sensor_id'] == sensor_id]
+                    df = chamber_dataframes[chamber_id]
+                    sensor_df = df[(df['sensor_id'] == sensor_id) & (df['reg_date'].dt.date == date.toPyDate())]
+                    if sensor_df.empty:
+                        continue
                     sensor_df.loc[:, 'avg_volt_minmax'] = transformer.fit_transform(sensor_df[['avg_volt']])
                     sensor_df = sensor_df.copy()
+                    sensor_df['time_dt'] = pd.to_datetime(sensor_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
                     sensor_df.reset_index(drop=True, inplace=True)
                     max_volt_idx = sensor_df['avg_volt_minmax'].idxmax()
                     min_volt_idx = sensor_df['avg_volt_minmax'].idxmin()
@@ -870,28 +793,26 @@ def plot_multi_data_volt_small(chamber_sensor_data, combined_start_time, combine
                     ax.scatter(sensor_df.loc[max_volt_idx, 'time_dt'], sensor_df.loc[max_volt_idx, 'avg_volt_minmax'], color='red', s=100)
                     ax.scatter(sensor_df.loc[min_volt_idx, 'time_dt'], sensor_df.loc[min_volt_idx, 'avg_volt_minmax'], color='blue', s=100)
 
-            for i in range(num_subplots):
-                sensor_ids = [sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids][i * 5:(i + 1) * 5]
-                plot_lines(axes[i], sensor_ids)
-                y_min, y_max = axes[i].get_ylim()
+                y_min, y_max = ax.get_ylim()
                 for injection_type, times in injection_times.items():
                     for time in times:
                         injection_time = time.replace(year=1970, month=1, day=1)
                         if combined_start_time <= injection_time <= combined_end_time:
-                            axes[i].axvline(x=injection_time, linestyle='--', color='r', label=f'{injection_type}' if injection_type not in axes[i].get_legend_handles_labels()[1] else "")
-                            axes[i].text(injection_time, y_max, f'{injection_type}', rotation=45, verticalalignment='bottom', color='r')
-                axes[i].set_title(f'Combined Data for Sensors {sensor_ids}')
-                axes[i].set_xlabel('Time')
-                axes[i].set_ylabel('avg_volt')
-                axes[i].legend(loc='best', fontsize='small')
-                axes[i].xaxis.set_major_locator(mdates.HourLocator(interval=1))
-                axes[i].xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
-                axes[i].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-                axes[i].set_xlim(combined_start_time, combined_end_time)
-                axes[i].tick_params(axis='x', rotation=45)
+                            ax.axvline(x=injection_time, linestyle='--', color='r', label=f'{injection_type}' if injection_type not in ax.get_legend_handles_labels()[1] else "")
+                            ax.text(injection_time, y_max, f'{injection_type}', rotation=45, verticalalignment='bottom', color='r')
 
-            for j in range(num_subplots, len(axes)):
-                fig.delaxes(axes[j])
+                ax.set_title(f'Chamber {chamber_id} Data')
+                ax.set_xlabel('Time')
+                ax.set_ylabel('avg_volt_minmax')
+                ax.legend(loc='best', fontsize='small')
+                ax.xaxis.set_major_locator(HourLocator(interval=1))
+                ax.xaxis.set_minor_locator(MinuteLocator(interval=15))
+                ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
+                ax.set_xlim(combined_start_time, combined_end_time)
+                ax.tick_params(axis='x', rotation=45)
+
+            for i, chamber_id in enumerate(chamber_sensor_data.keys()):
+                plot_chamber(axes[i], chamber_id, chamber_sensor_data[chamber_id])
 
             fig.suptitle(f'Plots for {date.toString("yyyy-MM-dd")}')
             plt.tight_layout()
@@ -900,85 +821,101 @@ def plot_multi_data_volt_small(chamber_sensor_data, combined_start_time, combine
         def prev_pair(self):
             if self.current_pair_index > 0:
                 self.current_pair_index -= 1
-                self.plot(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
+                self.plot(chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
 
         def next_pair(self):
             if self.current_pair_index < len(self.date_time_pairs) - 1:
                 self.current_pair_index += 1
-                self.plot(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
+                self.plot(chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
 
     global multi_plot_window_small
     multi_plot_window_small = MultiPlotWindowSmall(parent)
     multi_plot_window_small.show()
 
-def plot_multi_data_rs_small(chamber_sensor_data, combined_start_time, combined_end_time, injection_times, date_time_pairs, parent=None):
-    result_df = prepare_data_small(chamber_sensor_data, date_time_pairs)
-    filtered_df = result_df[result_df['sensor_id'].isin([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids])]
-    transformer = MinMaxScaler()
-    filtered_df['time_dt'] = pd.to_datetime(filtered_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
 
+def plot_multi_data_rs_small(chamber_sensor_data, combined_start_time, combined_end_time, injection_times, date_time_pairs, parent=None):
+    chamber_dataframes = prepare_data_small(chamber_sensor_data, date_time_pairs)
+    if not chamber_dataframes:
+        print("No data available for plotting.")
+        return
+    
+    transformer = MinMaxScaler()
+    
     combined_start_time = combined_start_time.replace(year=1970, month=1, day=1)
     combined_end_time = combined_end_time.replace(year=1970, month=1, day=1)
 
     class MultiPlotWindowSmall(PlotWindowSmall):
         def __init__(self, parent=None):
             super().__init__(parent, title="Multi Data Plot")
-            self.plot(chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs)
+            self.current_pair_index = 0
+            self.date_time_pairs = date_time_pairs
+            self.plot(chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
+            self.back_button.clicked.connect(self.prev_pair)
+            self.next_button.clicked.connect(self.next_pair)
 
-        def plot(self, chamber_sensor_data, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs):
-            dates = filtered_df['reg_date'].dt.date.unique()
-            for current_date in dates:
-                date_filtered_df = filtered_df[filtered_df['reg_date'].dt.date == current_date]
-                num_subplots = (len([sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids]) - 1) // 5 + 1
-                num_subplots = min(num_subplots, 8)
-                num_cols = 2
-                num_rows = (num_subplots + 1) // num_cols
-                fig = self.canvas.figure
-                axes = []
-                for i in range(1, num_subplots + 1):
-                    ax = fig.add_subplot(num_rows, num_cols, i)
-                    axes.append(ax)
-                fig.set_size_inches(15, 5 * num_rows)
-                fig.subplots_adjust(wspace=0.3)
+        def plot(self, chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, current_pair):
+            self.canvas.figure.clf()
+            date, start_time, end_time = current_pair
+            num_chambers = len(chamber_sensor_data)
+            num_cols = 2
+            num_rows = (num_chambers + 1) // num_cols
+            fig = self.canvas.figure
+            axes = []
 
-                def plot_lines(ax, sensor_ids):
-                    for sensor_id in sensor_ids:
-                        sensor_df = date_filtered_df[date_filtered_df['sensor_id'] == sensor_id]
-                        sensor_df.loc[:, 'avg_rs_minmax'] = transformer.fit_transform(sensor_df[['avg_rs']])
-                        sensor_df = sensor_df.copy()
-                        sensor_df.reset_index(drop=True, inplace=True)
-                        max_rs_idx = sensor_df['avg_rs_minmax'].idxmax()
-                        min_rs_idx = sensor_df['avg_rs_minmax'].idxmin()
-                        ax.plot(sensor_df['time_dt'], sensor_df['avg_rs_minmax'], label=f'sensor_id {sensor_id}', picker=5)
-                        ax.scatter(sensor_df.loc[max_rs_idx, 'time_dt'], sensor_df.loc[max_rs_idx, 'avg_rs_minmax'], color='red', s=100)
-                        ax.scatter(sensor_df.loc[min_rs_idx, 'time_dt'], sensor_df.loc[min_rs_idx, 'avg_rs_minmax'], color='blue', s=100)
+            for i in range(num_chambers):
+                ax = fig.add_subplot(num_rows, num_cols, i + 1)
+                axes.append(ax)
 
-                for i in range(num_subplots):
-                    sensor_ids = [sensor_id for sensor_ids in chamber_sensor_data.values() for sensor_id in sensor_ids][i * 5:(i + 1) * 5]
-                    plot_lines(axes[i], sensor_ids)
-                    y_min, y_max = axes[i].get_ylim()
-                    for injection_type, times in injection_times.items():
-                        for time in times:
-                            injection_time = time.replace(year=1970, month=1, day=1)
-                            if combined_start_time <= injection_time <= combined_end_time:
-                                axes[i].axvline(x=injection_time, linestyle='--', color='r', label=f'{injection_type}' if injection_type not in axes[i].get_legend_handles_labels()[1] else "")
-                                axes[i].text(injection_time, y_max, f'{injection_type}', rotation=45, verticalalignment='bottom', color='r')
-                    axes[i].set_title(f'Combined Data for Sensors {sensor_ids}')
-                    axes[i].set_xlabel('Time')
-                    axes[i].set_ylabel('avg_rs')
-                    axes[i].legend(loc='best', fontsize='small')
-                    axes[i].xaxis.set_major_locator(mdates.HourLocator(interval=1))
-                    axes[i].xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
-                    axes[i].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-                    axes[i].set_xlim(combined_start_time, combined_end_time)
-                    axes[i].tick_params(axis='x', rotation=45)
+            def plot_chamber(ax, chamber_id, sensor_ids):
+                for sensor_id in sensor_ids:
+                    df = chamber_dataframes[chamber_id]
+                    sensor_df = df[(df['sensor_id'] == sensor_id) & (df['reg_date'].dt.date == date.toPyDate())]
+                    if sensor_df.empty:
+                        continue
+                    sensor_df.loc[:, 'avg_rs_minmax'] = transformer.fit_transform(sensor_df[['avg_rs']])
+                    sensor_df = sensor_df.copy()
+                    sensor_df['time_dt'] = pd.to_datetime(sensor_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
+                    sensor_df.reset_index(drop=True, inplace=True)
+                    max_rs_idx = sensor_df['avg_rs_minmax'].idxmax()
+                    min_rs_idx = sensor_df['avg_rs_minmax'].idxmin()
+                    ax.plot(sensor_df['time_dt'], sensor_df['avg_rs_minmax'], label=f'sensor_id {sensor_id}')
+                    ax.scatter(sensor_df.loc[max_rs_idx, 'time_dt'], sensor_df.loc[max_rs_idx, 'avg_rs_minmax'], color='red', s=100)
+                    ax.scatter(sensor_df.loc[min_rs_idx, 'time_dt'], sensor_df.loc[min_rs_idx, 'avg_rs_minmax'], color='blue', s=100)
 
-                for j in range(num_subplots, len(axes)):
-                    fig.delaxes(axes[j])
+                y_min, y_max = ax.get_ylim()
+                for injection_type, times in injection_times.items():
+                    for time in times:
+                        injection_time = time.replace(year=1970, month=1, day=1)
+                        if combined_start_time <= injection_time <= combined_end_time:
+                            ax.axvline(x=injection_time, linestyle='--', color='r', label=f'{injection_type}' if injection_type not in ax.get_legend_handles_labels()[1] else "")
+                            ax.text(injection_time, y_max, f'{injection_type}', rotation=45, verticalalignment='bottom', color='r')
 
-                fig.suptitle(f'Plots for {current_date}')
-                plt.tight_layout()
-                self.canvas.draw()
+                ax.set_title(f'Chamber {chamber_id} Data')
+                ax.set_xlabel('Time')
+                ax.set_ylabel('avg_rs_minmax')
+                ax.legend(loc='best', fontsize='small')
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                ax.set_xlim(combined_start_time, combined_end_time)
+                ax.tick_params(axis='x', rotation=45)
+
+            for i, chamber_id in enumerate(chamber_sensor_data.keys()):
+                plot_chamber(axes[i], chamber_id, chamber_sensor_data[chamber_id])
+
+            fig.suptitle(f'Plots for {date.toString("yyyy-MM-dd")}')
+            plt.tight_layout()
+            self.canvas.draw()
+
+        def prev_pair(self):
+            if self.current_pair_index > 0:
+                self.current_pair_index -= 1
+                self.plot(chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
+
+        def next_pair(self):
+            if self.current_pair_index < len(self.date_time_pairs) - 1:
+                self.current_pair_index += 1
+                self.plot(chamber_sensor_data, chamber_dataframes, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index])
 
     global multi_plot_window_small
     multi_plot_window_small = MultiPlotWindowSmall(parent)
