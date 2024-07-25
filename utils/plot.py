@@ -448,67 +448,74 @@ def plot_multi_data_rs(selected_sensor_ids, combined_start_time, combined_end_ti
     class MultiPlotWindow(PlotWindow):
         def __init__(self, parent=None):
             super().__init__(parent, title="Multi Data Plot")
-            self.plot(selected_sensor_ids, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, chamber_type)
+            self.current_pair_index = 0
+            self.date_time_pairs = date_time_pairs
+            self.plot(selected_sensor_ids, filtered_df, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index], chamber_type)
+            self.back_button.clicked.connect(self.prev_pair)
+            self.next_button.clicked.connect(self.next_pair)
 
-        def plot(self, selected_sensor_ids, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, chamber_type):
-            dates = filtered_df['reg_date'].dt.date.unique()
-            for current_date in dates:
-                date_filtered_df = filtered_df[filtered_df['reg_date'].dt.date == current_date]
-                num_subplots = (len(selected_sensor_ids) - 1) // 5 + 1
-                num_subplots = min(num_subplots, 8)
-                num_cols = 2
-                num_rows = (num_subplots + 1) // num_cols
-                fig = self.canvas.figure
-                axes = []
-                for i in range(1, num_subplots + 1):
-                    ax = fig.add_subplot(num_rows, num_cols, i)
-                    axes.append(ax)
-                fig.set_size_inches(15, 5 * num_rows)
-                fig.subplots_adjust(wspace=0.3)
+        def plot(self, selected_sensor_ids, filtered_df, combined_start_time, combined_end_time, injection_times, current_pair, chamber_type):
+            self.canvas.figure.clf()
+            date, start_time, end_time = current_pair
+            date_filtered_df = filtered_df[filtered_df['reg_date'].dt.date == date.toPyDate()]
+            num_subplots = (len(selected_sensor_ids) - 1) // 5 + 1
+            num_subplots = min(num_subplots, 8)
+            num_cols = 2
+            num_rows = (num_subplots + 1) // num_cols
+            fig = self.canvas.figure
+            axes = []
+            for i in range(1, num_subplots + 1):
+                ax = fig.add_subplot(num_rows, num_cols, i)
+                axes.append(ax)
 
-                def plot_lines(ax, sensor_ids):
-                    for sensor_id in sensor_ids:
-                        sensor_df = date_filtered_df[date_filtered_df['sensor_id'] == sensor_id]
-                        sensor_df.loc[:, 'avg_rs_minmax'] = transformer.fit_transform(sensor_df[['avg_rs']])
-                        sensor_df = sensor_df.copy()
-                        sensor_df.reset_index(drop=True, inplace=True)
-                        max_rs_idx = sensor_df['avg_rs_minmax'].idxmax()
-                        min_rs_idx = sensor_df['avg_rs_minmax'].idxmin()
-                        ax.plot(sensor_df['time_dt'], sensor_df['avg_rs_minmax'], label=f'sensor_id {sensor_id}',picker=5)
-                        ax.scatter(sensor_df.loc[max_rs_idx, 'time_dt'], sensor_df.loc[max_rs_idx, 'avg_rs_minmax'], color='red', s=100)
-                        ax.scatter(sensor_df.loc[min_rs_idx, 'time_dt'], sensor_df.loc[min_rs_idx, 'avg_rs_minmax'], color='blue', s=100)
+            def plot_lines(ax, sensor_ids):
+                for sensor_id in sensor_ids:
+                    sensor_df = date_filtered_df[date_filtered_df['sensor_id'] == sensor_id]
+                    sensor_df.loc[:, 'avg_rs_minmax'] = transformer.fit_transform(sensor_df[['avg_rs']])
+                    sensor_df = sensor_df.copy()
+                    sensor_df.reset_index(drop=True, inplace=True)
+                    max_rs_idx = sensor_df['avg_rs_minmax'].idxmax()
+                    min_rs_idx = sensor_df['avg_rs_minmax'].idxmin()
+                    ax.plot(sensor_df['time_dt'], sensor_df['avg_rs_minmax'], label=f'sensor_id {sensor_id}')
+                    ax.scatter(sensor_df.loc[max_rs_idx, 'time_dt'], sensor_df.loc[max_rs_idx, 'avg_rs_minmax'], color='red', s=100)
+                    ax.scatter(sensor_df.loc[min_rs_idx, 'time_dt'], sensor_df.loc[min_rs_idx, 'avg_rs_minmax'], color='blue', s=100)
 
-                for i in range(num_subplots):
-                    sensor_ids = selected_sensor_ids[i * 5:(i + 1) * 5]
-                    plot_lines(axes[i], sensor_ids)
-                    y_min, y_max = axes[i].get_ylim()
-                    for injection_type, times in injection_times.items():
-                        for time in times:
-                            injection_time = time.replace(year=1970, month=1, day=1)
-                            if combined_start_time <= injection_time <= combined_end_time:
-                                axes[i].axvline(x=injection_time, linestyle='--', color='r', label=f'{injection_type}' if injection_type not in axes[i].get_legend_handles_labels()[1] else "")
-                                axes[i].text(injection_time, y_max, f'{injection_type}', rotation=45, verticalalignment='bottom', color='r')
-                    axes[i].set_title(f'Combined Data for Sensors {sensor_ids}')
-                    axes[i].set_xlabel('Time')
-                    axes[i].set_ylabel('avg_rs')
-                    axes[i].legend(loc='best', fontsize='small')
-                    axes[i].xaxis.set_major_locator(mdates.HourLocator(interval=1))
-                    axes[i].xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
-                    axes[i].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-                    axes[i].set_xlim(combined_start_time, combined_end_time)
-                    axes[i].tick_params(axis='x', rotation=45)
+            for i in range(num_subplots):
+                sensor_ids = selected_sensor_ids[i * 5:(i + 1) * 5]
+                plot_lines(axes[i], sensor_ids)
+                y_min, y_max = axes[i].get_ylim()
+                date_str = date.toString("yyyy-MM-dd")
+                configure_ax(axes[i], combined_start_time, combined_end_time, injection_times, y_max, date_str, specific_chamber_type=chamber_type)
+                axes[i].set_title(f'Combined Data for Sensors {sensor_ids}')
+                axes[i].set_xlabel('Time')
+                axes[i].set_ylabel('avg_rs')
+                axes[i].legend(loc='best', fontsize='small')
+                axes[i].xaxis.set_major_locator(mdates.HourLocator(interval=1))
+                axes[i].xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
+                axes[i].xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                axes[i].set_xlim(combined_start_time, combined_end_time)
+                axes[i].tick_params(axis='x', rotation=45)
 
-                for j in range(num_subplots, len(axes)):
-                    fig.delaxes(axes[j])
+            for j in range(num_subplots, len(axes)):
+                fig.delaxes(axes[j])
 
-                fig.suptitle(f'Plots for {current_date}')
-                plt.tight_layout()
-                self.canvas.draw()
+            fig.suptitle(f'Plots for {date.toString("yyyy-MM-dd")}')
+            plt.tight_layout()
+            self.canvas.draw()
+
+        def prev_pair(self):
+            if self.current_pair_index > 0:
+                self.current_pair_index -= 1
+                self.plot(selected_sensor_ids, filtered_df, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index], chamber_type)
+
+        def next_pair(self):
+            if self.current_pair_index < len(self.date_time_pairs) - 1:
+                self.current_pair_index += 1
+                self.plot(selected_sensor_ids, filtered_df, combined_start_time, combined_end_time, injection_times, self.date_time_pairs[self.current_pair_index], chamber_type)
 
     global multi_plot_window
     multi_plot_window = MultiPlotWindow(parent)
     multi_plot_window.show()
-
 
 class DatabaseQuerySmall:
     _instance = None
@@ -777,7 +784,7 @@ def plot_sensor_data_by_chamber_separate(chamber_dataframes, combined_start_time
             sensor_ids = df['sensor_id'].unique()
             num_sensors = len(sensor_ids)
             num_cols = 2
-            num_rows = (num_sensors + num_cols - 1) // num_cols  # Ensure enough rows for all sensors
+            num_rows = (num_sensors + num_cols - 1) // num_cols
             self.canvas.figure.clear()
             fig = self.canvas.figure
 
@@ -801,7 +808,7 @@ def plot_sensor_data_by_chamber_separate(chamber_dataframes, combined_start_time
                     y_col_transformed = f'{self.y_col}_minmax'
                     sensor_df[y_col_transformed] = self.transformer.fit_transform(sensor_df[[self.y_col]])
 
-                sensor_df = sensor_df.copy()  # Make a copy to avoid SettingWithCopyWarning
+                sensor_df = sensor_df.copy()
                 sensor_df['time_dt'] = pd.to_datetime(sensor_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
                 sns.lineplot(data=sensor_df, x='time_dt', y=y_col_transformed, label=f'Sensor {sensor_id}', ax=ax)
                 max_idx = sensor_df[y_col_transformed].idxmax()
@@ -811,7 +818,7 @@ def plot_sensor_data_by_chamber_separate(chamber_dataframes, combined_start_time
 
                 y_min, y_max = ax.get_ylim()
                 date_str = qdate.toString("yyyy-MM-dd")
-                configure_ax(ax, self.combined_start_time, self.combined_end_time, self.injection_times, y_max, date_str, specific_chamber_id=chamber_id,specific_chamber_type='4channel')
+                configure_ax(ax, self.combined_start_time, self.combined_end_time, self.injection_times, y_max, date_str, specific_chamber_id=chamber_id, specific_chamber_type=chamber_type)
                 ax.set_title(f'Chamber {chamber_id} - Sensor {sensor_id} - {date_str}')
                 ax.set_ylabel(y_col_transformed)
                 if i == num_sensors - 1:
@@ -820,7 +827,6 @@ def plot_sensor_data_by_chamber_separate(chamber_dataframes, combined_start_time
                     ax.set_xlabel('')
                 ax.legend(loc='best', fontsize='small')
 
-            # Remove empty subplots
             if num_rows * num_cols > num_sensors:
                 for j in range(num_sensors, num_rows * num_cols):
                     fig.delaxes(axes[j])
@@ -830,6 +836,7 @@ def plot_sensor_data_by_chamber_separate(chamber_dataframes, combined_start_time
     global sensor_data_plot_window_small
     sensor_data_plot_window_small = SensorDataPlotWindowSmall(chamber_dataframes, combined_start_time, combined_end_time, injection_times, date_time_pairs, chamber_type, y_col, minmax_transform, parent)
     sensor_data_plot_window_small.show()
+
 
 def plot_data_volt_small(chamber_sensor_data, combined_start_time, combined_end_time, injection_times, date_time_pairs, chamber_type, parent=None):
     chamber_dataframes = prepare_data_small(chamber_sensor_data, date_time_pairs)
@@ -947,22 +954,8 @@ def plot_multi_data_volt_small(chamber_sensor_data, combined_start_time, combine
                     ax.scatter(sensor_df.loc[min_volt_idx, 'time_dt'], sensor_df.loc[min_volt_idx, 'avg_volt_minmax'], color='blue', s=100)
 
                 y_min, y_max = ax.get_ylim()
-                for injection_type, times in injection_times.items():
-                    for time in times:
-                        injection_time = time.replace(year=1970, month=1, day=1)
-                        if combined_start_time <= injection_time <= combined_end_time:
-                            ax.axvline(x=injection_time, linestyle='--', color='r', label=f'{injection_type}' if injection_type not in ax.get_legend_handles_labels()[1] else "")
-                            ax.text(injection_time, y_max, f'{injection_type}', rotation=45, verticalalignment='bottom', color='r')
-
-                ax.set_title(f'Chamber {chamber_id} Data')
-                ax.set_xlabel('Time')
-                ax.set_ylabel('avg_volt_minmax')
-                ax.legend(loc='best', fontsize='small')
-                ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
-                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-                ax.set_xlim(combined_start_time, combined_end_time)
-                ax.tick_params(axis='x', rotation=45)
+                date_str = date.toString("yyyy-MM-dd")
+                configure_ax(ax, combined_start_time, combined_end_time, injection_times, y_max, date_str, specific_chamber_id=chamber_id, specific_chamber_type=chamber_type)
 
             for i, chamber_id in enumerate(chamber_sensor_data.keys()):
                 plot_chamber(axes[i], chamber_id, chamber_sensor_data[chamber_id])
@@ -984,6 +977,7 @@ def plot_multi_data_volt_small(chamber_sensor_data, combined_start_time, combine
     global multi_plot_window_small
     multi_plot_window_small = MultiPlotWindowSmall(parent)
     multi_plot_window_small.show()
+
 
 
 def plot_multi_data_rs_small(chamber_sensor_data, combined_start_time, combined_end_time, injection_times, date_time_pairs, chamber_type, parent=None):
@@ -1036,22 +1030,8 @@ def plot_multi_data_rs_small(chamber_sensor_data, combined_start_time, combined_
                     ax.scatter(sensor_df.loc[min_rs_idx, 'time_dt'], sensor_df.loc[min_rs_idx, 'avg_rs_minmax'], color='blue', s=100)
 
                 y_min, y_max = ax.get_ylim()
-                for injection_type, times in injection_times.items():
-                    for time in times:
-                        injection_time = time.replace(year=1970, month=1, day=1)
-                        if combined_start_time <= injection_time <= combined_end_time:
-                            ax.axvline(x=injection_time, linestyle='--', color='r', label=f'{injection_type}' if injection_type not in ax.get_legend_handles_labels()[1] else "")
-                            ax.text(injection_time, y_max, f'{injection_type}', rotation=45, verticalalignment='bottom', color='r')
-
-                ax.set_title(f'Chamber {chamber_id} Data')
-                ax.set_xlabel('Time')
-                ax.set_ylabel('avg_rs_minmax')
-                ax.legend(loc='best', fontsize='small')
-                ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
-                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-                ax.set_xlim(combined_start_time, combined_end_time)
-                ax.tick_params(axis='x', rotation=45)
+                date_str = date.toString("yyyy-MM-dd")
+                configure_ax(ax, combined_start_time, combined_end_time, injection_times, y_max, date_str, specific_chamber_id=chamber_id, specific_chamber_type=chamber_type)
 
             for i, chamber_id in enumerate(chamber_sensor_data.keys()):
                 plot_chamber(axes[i], chamber_id, chamber_sensor_data[chamber_id])

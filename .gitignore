@@ -5,3 +5,5 @@ dist/
 query.ipynb
 .vscode/
 main.spec
+TEST.py
+TEST.ipynb
