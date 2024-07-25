@@ -14,8 +14,7 @@ import pandas as pd
 from utils.database import (
     query_injection_conditions, fetch_injection_data, update_injection_data,
     delete_injection_data, insert_injection_data, fetch_manufacturing_data, query_real_time_sensor_data,query_polymer_solvent,
-     query_injection_conditions_small, fetch_injection_data_small, update_injection_data_small,
-    delete_injection_data_small, insert_injection_data_small, fetch_manufacturing_data_small, query_real_time_sensor_data_small,query_polymer_solvent_small,fetch_chamber_data
+    fetch_manufacturing_data_small, query_real_time_sensor_data_small,query_polymer_solvent_small,fetch_chamber_data
 )
 from utils.plot import (
     plot_data_volt, plot_ratio_data_volt, plot_multi_data_volt, plot_static_combine_volt,
@@ -189,13 +188,15 @@ class TSEI_PSRGVSystem(QMainWindow):
         self.clear_layout(self.right_frame)
         layout = QVBoxLayout()
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Review'])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Chamber Type', 'Chamber ID', 'Review'])
         self.load_injection_data()
         self.table.setColumnWidth(0, 50)
         self.table.setColumnWidth(1, 200)
         self.table.setColumnWidth(2, 200)
-        self.table.setColumnWidth(3, 350)
+        self.table.setColumnWidth(3, 100)
+        self.table.setColumnWidth(4, 100)
+        self.table.setColumnWidth(5, 350)
         layout.addWidget(self.table)
         button_layout = QHBoxLayout()
         buttons = [
@@ -322,7 +323,9 @@ class TSEI_PSRGVSystem(QMainWindow):
             self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
             self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
             self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
-            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['review'])))
+            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['chamber_type'])))
+            self.table.setItem(row_index, 4, QTableWidgetItem(str(row_data['chamber_id'])))
+            self.table.setItem(row_index, 5, QTableWidgetItem(str(row_data['review'])))
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
@@ -352,16 +355,49 @@ class TSEI_PSRGVSystem(QMainWindow):
         injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
         if not ok1:
             return
+        
         injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
         if not ok2:
             return
-        review, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
-        if not ok3:
-            review = None
-        if idx is None:
-            db_func(injection_time, injection_condition, review)
+        
+        # Chamber Type Selection
+        chamber_type_dialog = QDialog(self)
+        chamber_type_dialog.setWindowTitle('Select Chamber Type')
+        layout = QVBoxLayout()
+        chamber_type_combo = QComboBox()
+        chamber_type_combo.addItems(['40channel', '4 Channel'])
+        layout.addWidget(QLabel("Select Chamber Type:"))
+        layout.addWidget(chamber_type_combo)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(chamber_type_dialog.accept)
+        buttons.rejected.connect(chamber_type_dialog.reject)
+        layout.addWidget(buttons)
+        chamber_type_dialog.setLayout(layout)
+        
+        chamber_type = None
+        if chamber_type_dialog.exec_() == QDialog.Accepted:
+            chamber_type = chamber_type_combo.currentText()
         else:
-            db_func(idx, injection_time, injection_condition, review)
+            return
+        
+        # Chamber ID Input
+        while True:
+            chamber_id, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter chamber ID (single digit):')
+            if not ok3:
+                return
+            if chamber_id.isdigit() and len(chamber_id) == 1:
+                break
+            QMessageBox.warning(self, "Invalid input", "Please enter a single digit for chamber ID.")
+        
+        review, ok4 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
+        if not ok4:
+            review = None
+        
+        if idx is None:
+            db_func(injection_time, injection_condition, review, chamber_id, chamber_type)
+        else:
+            db_func(idx, injection_time, injection_condition, review, chamber_id, chamber_type)
+        
         self.load_injection_data()
 
     def create_graphic_options(self, button_text, visualize_func):
@@ -931,13 +967,15 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.clear_layout_small(self.right_frame)
         layout = QVBoxLayout()
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Review'])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Chamber Type', 'Chamber ID', 'Review'])
         self.load_injection_data()
         self.table.setColumnWidth(0, 50)
         self.table.setColumnWidth(1, 200)
         self.table.setColumnWidth(2, 200)
-        self.table.setColumnWidth(3, 350)
+        self.table.setColumnWidth(3, 100)
+        self.table.setColumnWidth(4, 100)
+        self.table.setColumnWidth(5, 350)
         layout.addWidget(self.table)
         button_layout = QHBoxLayout()
         buttons = [
@@ -1057,16 +1095,7 @@ class TSEI_PSRGVSystem_small(QMainWindow):
             self.table.setItem(row_index, 16, QTableWidgetItem(str(row_data['review'])))
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
-    def load_injection_data_small(self):
-        injection_data = fetch_injection_data()
-        self.table.setRowCount(len(injection_data))
-        for row_index, row_data in enumerate(injection_data):
-            self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
-            self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
-            self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
-            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['review'])))
-        self.table.resizeColumnsToContents()
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
     def load_injection_data(self):
         injection_data = fetch_injection_data()
         self.table.setRowCount(len(injection_data))
@@ -1074,73 +1103,12 @@ class TSEI_PSRGVSystem_small(QMainWindow):
             self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
             self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
             self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
-            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['review'])))
+            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['chamber_type'])))
+            self.table.setItem(row_index, 4, QTableWidgetItem(str(row_data['chamber_id'])))
+            self.table.setItem(row_index, 5, QTableWidgetItem(str(row_data['review'])))
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
-    def add_injection_data_small(self):
-        self.modify_injection_data_small(insert_injection_data_small)
-
-    def update_injection_data_small(self):
-        selected_rows = self.table.selectionModel().selectedRows()
-        if selected_rows:
-            row = selected_rows[0].row()
-            idx = self.table.item(row, 0).text()
-            self.modify_injection_data_small(update_injection_data_small, idx)
-        else:
-            QMessageBox.warning(self, "No selection", "Please select a row to update.")
-
-    def delete_injection_data_small(self):
-        selected_rows = self.table.selectionModel().selectedRows()
-        if selected_rows:
-            for row in selected_rows:
-                idx = self.table.item(row.row(), 0).text()
-                delete_injection_data_small(idx)
-            self.load_injection_data_small()
-        else:
-            QMessageBox.warning(self, "No selection", "Please select a row to delete.")
-
-    def modify_injection_data_small(self, db_func, idx=None):
-        injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
-        if not ok1:
-            return
-        injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
-        if not ok2:
-            return
-        review, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
-        if not ok3:
-            review = None
-        if idx is None:
-            db_func(injection_time, injection_condition, review)
-        else:
-            db_func(idx, injection_time, injection_condition, review)
-        self.load_injection_data_small()
-
-    def create_graphic_options_small(self, button_text, visualize_func):
-        self.selected_sensor_data = {}
-        self.date_time_pairs = []
-        date_selection_layout = QVBoxLayout()
-        date_selection_button = QPushButton('날짜 선택')
-        date_selection_button.clicked.connect(self.add_date_small)
-        date_selection_layout.addWidget(date_selection_button)
-        self.date_label_layout = QVBoxLayout()
-        date_scroll_area = QScrollArea()
-        date_scroll_area.setWidgetResizable(True)
-        date_widget = QWidget()
-        date_widget.setLayout(self.date_label_layout)
-        date_scroll_area.setWidget(date_widget)
-        date_selection_layout.addWidget(date_scroll_area)
-        self.left_frame.addLayout(date_selection_layout)
-        sensor_id_layout = QHBoxLayout()
-        sensor_id_button = QPushButton('Chamber ID 선택')
-        sensor_id_button.clicked.connect(self.select_sensor_ids_small)
-        sensor_id_layout.addWidget(sensor_id_button)
-        self.selected_sensor_ids_label = QLabel('')
-        sensor_id_layout.addWidget(self.selected_sensor_ids_label)
-        self.left_frame.addLayout(sensor_id_layout)
-        visualize_button = QPushButton(button_text)
-        visualize_button.clicked.connect(visualize_func)
-        self.left_frame.addWidget(visualize_button)
     def add_injection_data(self):
         self.modify_injection_data(insert_injection_data)
 
@@ -1167,17 +1135,77 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
         if not ok1:
             return
+        
         injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
         if not ok2:
             return
-        review, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
-        if not ok3:
-            review = None
-        if idx is None:
-            db_func(injection_time, injection_condition, review)
+        
+        # Chamber Type Selection
+        chamber_type_dialog = QDialog(self)
+        chamber_type_dialog.setWindowTitle('Select Chamber Type')
+        layout = QVBoxLayout()
+        chamber_type_combo = QComboBox()
+        chamber_type_combo.addItems(['40channel', '4 Channel'])
+        layout.addWidget(QLabel("Select Chamber Type:"))
+        layout.addWidget(chamber_type_combo)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(chamber_type_dialog.accept)
+        buttons.rejected.connect(chamber_type_dialog.reject)
+        layout.addWidget(buttons)
+        chamber_type_dialog.setLayout(layout)
+        
+        chamber_type = None
+        if chamber_type_dialog.exec_() == QDialog.Accepted:
+            chamber_type = chamber_type_combo.currentText()
         else:
-            db_func(idx, injection_time, injection_condition, review)
+            return
+        
+        # Chamber ID Input
+        while True:
+            chamber_id, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter chamber ID (single digit):')
+            if not ok3:
+                return
+            if chamber_id.isdigit() and len(chamber_id) == 1:
+                break
+            QMessageBox.warning(self, "Invalid input", "Please enter a single digit for chamber ID.")
+        
+        review, ok4 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
+        if not ok4:
+            review = None
+        
+        if idx is None:
+            db_func(injection_time, injection_condition, review, chamber_id, chamber_type)
+        else:
+            db_func(idx, injection_time, injection_condition, review, chamber_id, chamber_type)
+        
         self.load_injection_data()
+
+
+    def create_graphic_options_small(self, button_text, visualize_func):
+        self.selected_sensor_data = {}
+        self.date_time_pairs = []
+        date_selection_layout = QVBoxLayout()
+        date_selection_button = QPushButton('날짜 선택')
+        date_selection_button.clicked.connect(self.add_date_small)
+        date_selection_layout.addWidget(date_selection_button)
+        self.date_label_layout = QVBoxLayout()
+        date_scroll_area = QScrollArea()
+        date_scroll_area.setWidgetResizable(True)
+        date_widget = QWidget()
+        date_widget.setLayout(self.date_label_layout)
+        date_scroll_area.setWidget(date_widget)
+        date_selection_layout.addWidget(date_scroll_area)
+        self.left_frame.addLayout(date_selection_layout)
+        sensor_id_layout = QHBoxLayout()
+        sensor_id_button = QPushButton('Chamber ID 선택')
+        sensor_id_button.clicked.connect(self.select_sensor_ids_small)
+        sensor_id_layout.addWidget(sensor_id_button)
+        self.selected_sensor_ids_label = QLabel('')
+        sensor_id_layout.addWidget(self.selected_sensor_ids_label)
+        self.left_frame.addLayout(sensor_id_layout)
+        visualize_button = QPushButton(button_text)
+        visualize_button.clicked.connect(visualize_func)
+        self.left_frame.addWidget(visualize_button)
 
     def add_date_small(self):
         selected_date = self.select_date_small()

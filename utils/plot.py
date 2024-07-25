@@ -16,7 +16,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout,QLabel
 from matplotlib.collections import PathCollection
 from matplotlib.dates import HourLocator, MinuteLocator, DateFormatter
-
+from scipy.signal import find_peaks
 # 한글 폰트 설정
 font_path = "C:/Windows/Fonts/malgun.ttf"  # Windows의 경우
 font_name = font_manager.FontProperties(fname=font_path).get_name()
@@ -179,23 +179,70 @@ def plot_sensor_data(selected_sensor_ids, filtered_df, combined_start_time, comb
                 sensor_df = filtered_df[(filtered_df['sensor_id'] == sensor_id) & (filtered_df['reg_date'].dt.date == date.toPyDate())]
                 if sensor_df.empty:
                     continue
-                
+
                 y_col_transformed = y_col  # Default to the original column name
                 if minmax_transform:
-                    # Create a unique minmax column name for this date
                     y_col_transformed = f'{y_col}_minmax'
                     sensor_df[y_col_transformed] = self.transformer.fit_transform(sensor_df[[y_col]])
-                
+
                 sensor_df['time_dt'] = pd.to_datetime(sensor_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
                 sensor_df = sensor_df.copy()
                 sensor_df.reset_index(drop=True, inplace=True)
-                
                 max_idx = sensor_df[y_col_transformed].idxmax()
                 min_idx = sensor_df[y_col_transformed].idxmin()
+
+                ax.plot(sensor_df['time_dt'], sensor_df[y_col_transformed], label=f'sensor_id {sensor_id}')
+                ax.scatter(sensor_df.loc[max_idx, 'time_dt'], sensor_df.loc[max_idx, y_col_transformed], color='red', s=100, picker=5)
+                ax.scatter(sensor_df.loc[min_idx, 'time_dt'], sensor_df.loc[min_idx, y_col_transformed], color='blue', s=10)
                 
-                sns.lineplot(data=sensor_df, x='time_dt', y=y_col_transformed, label=f'sensor_id {sensor_id}', ax=ax)
-                ax.scatter(sensor_df.loc[max_idx, 'time_dt'], sensor_df.loc[max_idx, y_col_transformed], color='red', label=f'Max {y_col_transformed}:{sensor_df["reg_date"].iloc[max_idx]}', s=100,picker=5)
-                ax.scatter(sensor_df.loc[min_idx, 'time_dt'], sensor_df.loc[min_idx, y_col_transformed], color='blue', label=f'Min {y_col_transformed}:{sensor_df["reg_date"].iloc[min_idx]}', s=100)
+                # 피크 및 베이스라인 탐지
+                median_value = sensor_df[y_col_transformed].median()
+                prominence_value = median_value * 0.0005  # 중앙값의 1%로 prominence 설정
+
+                peaks, _ = find_peaks(sensor_df[y_col_transformed], distance=10, prominence=prominence_value)
+                change_threshold_relative = sensor_df[y_col_transformed].median() * 0.01  # 중앙값에서 1% 변동 기준
+                change_threshold_absolute = 0.0004  # 절대적 변화 기준 설정 (예: 0.0004)
+
+                for i, peak_idx in enumerate(peaks):
+                    if i == 0:
+                        # 첫 번째 피크의 경우, 피크가 증가하기 시작한 값을 찾음
+                        for j in range(peak_idx, 0, -1):
+                            if sensor_df[y_col_transformed].iloc[j] < sensor_df[y_col_transformed].iloc[peak_idx] - max(change_threshold_relative, change_threshold_absolute):
+                                start_idx = j
+                                break
+                        else:
+                            start_idx = 0
+                        if start_idx < peak_idx:
+                            baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                            base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                            base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx]
+                        else:
+                            continue
+                    else:
+                        # 피크와 피크 사이에서 가장 낮은 값을 베이스라인으로 설정
+                        start_idx = peaks[i-1]
+                        if start_idx < peak_idx:
+                            baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                            base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                            base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx]
+                        else:
+                            continue
+                    
+                    peak_resistance = sensor_df[y_col_transformed].iloc[peak_idx]
+                    resistance_diff = peak_resistance - base_resistance  # ΔΩ을 계산
+                    
+                    # 저항 변화값 기준을 초과하는 경우에만 표시
+                    if resistance_diff >= max(change_threshold_relative, change_threshold_absolute):
+                        try:
+                            # 피크 최고점에서 수직으로 베이스라인까지 실선
+                            ax.plot([sensor_df['time_dt'].iloc[peak_idx], sensor_df['time_dt'].iloc[peak_idx]], [sensor_df[y_col_transformed].iloc[peak_idx], baseline], color='red', linestyle='-', linewidth=0.5)
+                            # 베이스라인에서 수평으로 피크 정점 시간까지 실선
+                            ax.plot([sensor_df['time_dt'].iloc[start_idx], sensor_df['time_dt'].iloc[peak_idx]], [baseline, baseline], color='red', linestyle='-', linewidth=0.5)
+                            
+                            ax.scatter(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], color='red', zorder=5)
+                            ax.text(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], f'ΔΩ: {resistance_diff:.5f}', color='red', fontsize=9)
+                        except Exception as e:
+                            print(f"Error plotting peak: {e}")
                 
                 y_min, y_max = ax.get_ylim()
                 date_str = date.toString("yyyy-MM-dd")
@@ -205,27 +252,10 @@ def plot_sensor_data(selected_sensor_ids, filtered_df, combined_start_time, comb
                 ax.set_ylabel(y_col_transformed)
                 self.canvas.mpl_connect('pick_event', on_pick)
 
-
                 self.tooltip = QLabel('', self)
                 self.tooltip.setStyleSheet("background-color: white; border: 1px solid black;")
                 self.tooltip.setVisible(False)
             self.canvas.draw()
-        def on_motion(self, event):
-            if event.inaxes == self.ax:
-                visible = False
-                for line in [self.line1, self.line2]:
-                    cont, ind = line.contains(event)
-                    if cont:
-                        self.tooltip.setText(line.get_label())
-                        self.tooltip.move(event.x + 10, event.y + 10)  # 오프셋 추가
-                        self.tooltip.setVisible(True)
-                        visible = True
-                        break
-                if not visible:
-                    self.tooltip.setVisible(False)
-            else:
-                self.tooltip.setVisible(False)
-
 
     global sensor_data_plot_window
     sensor_data_plot_window = SensorDataPlotWindow(selected_sensor_ids, filtered_df, combined_start_time, combined_end_time, injection_times, date_time_pairs, y_col, minmax_transform, chamber_type, parent)
@@ -256,18 +286,80 @@ def plot_sensor_combine(selected_sensor_ids, filtered_df, combined_start_time, c
                         continue
                     if self.minmax_transform:
                         sensor_df.loc[:, f'{self.y_col}_minmax'] = self.transformer.fit_transform(sensor_df[[self.y_col]])
-                        y_col = f'{self.y_col}_minmax'
+                        y_col_transformed = f'{self.y_col}_minmax'
                     else:
-                        y_col = self.y_col
+                        y_col_transformed = self.y_col
                     sensor_df.loc[:, 'time_dt'] = pd.to_datetime(sensor_df['reg_date'].dt.strftime('1970-01-01 %H:%M:%S'))
-                    sns.lineplot(data=sensor_df, x='time_dt', y=y_col, label=f'sensor_id {sensor_id}', ax=ax,picker=5)
+                    sensor_df = sensor_df.copy()
+                    sensor_df.reset_index(drop=True, inplace=True)  # 인덱스 초기화
+                    
+                    sns.lineplot(data=sensor_df, x='time_dt', y=y_col_transformed, label=f'sensor_id {sensor_id}', ax=ax, picker=5)
+                    
+                    # 피크 및 베이스라인 탐지
+                    median_value = sensor_df[y_col_transformed].median()
+                    prominence_value = median_value * 0.0005  # 중앙값의 1%로 prominence 설정
+
+                    peaks, _ = find_peaks(sensor_df[y_col_transformed], distance=10, prominence=prominence_value)
+                    change_threshold_relative = sensor_df[y_col_transformed].median() * 0.01  # 중앙값에서 1% 변동 기준
+                    change_threshold_absolute = 0.0004  # 절대적 변화 기준 설정 (예: 0.0004)
+
+                    for i, peak_idx in enumerate(peaks):
+                        if i == 0:
+                            # 첫 번째 피크의 경우, 피크가 증가하기 시작한 값을 찾음
+                            for j in range(peak_idx, 0, -1):
+                                if sensor_df[y_col_transformed].iloc[j] < sensor_df[y_col_transformed].iloc[peak_idx] - max(change_threshold_relative, change_threshold_absolute):
+                                    start_idx = j
+                                    break
+                            else:
+                                start_idx = 0
+                            if start_idx < peak_idx:
+                                baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                                base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                                if 0 <= base_resistance_idx < len(sensor_df):
+                                    base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx]
+                                else:
+                                    base_resistance = None
+                            else:
+                                continue
+                        else:
+                            # 피크와 피크 사이에서 가장 낮은 값을 베이스라인으로 설정
+                            start_idx = peaks[i-1]
+                            if start_idx < peak_idx:
+                                baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                                base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                                if 0 <= base_resistance_idx < len(sensor_df):
+                                    base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx]
+                                else:
+                                    base_resistance = None
+                            else:
+                                continue
+                        
+                        if base_resistance is None:
+                            continue
+
+                        peak_resistance = sensor_df[y_col_transformed].iloc[peak_idx]
+                        resistance_diff = peak_resistance - base_resistance  # ΔΩ을 계산
+                        
+                        # 저항 변화값 기준을 초과하는 경우에만 표시
+                        if resistance_diff >= max(change_threshold_relative, change_threshold_absolute):
+                            try:
+                                # 피크 최고점에서 수직으로 베이스라인까지 실선
+                                ax.plot([sensor_df['time_dt'].iloc[peak_idx], sensor_df['time_dt'].iloc[peak_idx]], [sensor_df[y_col_transformed].iloc[peak_idx], baseline], color='red', linestyle='-', linewidth=0.5)
+                                # 베이스라인에서 수평으로 피크 정점 시간까지 실선
+                                ax.plot([sensor_df['time_dt'].iloc[start_idx], sensor_df['time_dt'].iloc[peak_idx]], [baseline, baseline], color='red', linestyle='-', linewidth=0.5)
+                                
+                                ax.scatter(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], color='red', zorder=5)
+                                ax.text(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], f'ΔΩ: {resistance_diff:.5f}', color='red', fontsize=9)
+                            except Exception as e:
+                                print(f"Error plotting peak: {e}")
+
                     y_min, y_max = ax.get_ylim()
                     for date, _, _ in self.date_time_pairs:
                         date_str = date.toString("yyyy-MM-dd")
                         configure_ax(ax, self.combined_start_time, self.combined_end_time, self.injection_times, y_max, date_str, specific_chamber_type=self.chamber_type)
                     ax.set_title('Combined Sensor Data')
                     ax.legend(bbox_to_anchor=(0.1, 1.15), loc='upper left', ncol=1)
-                    ax.set_ylabel(y_col)
+                    ax.set_ylabel(y_col_transformed)
                     
             self.canvas.draw()
 
@@ -685,6 +777,58 @@ def plot_sensor_data_by_chamber(chamber_dataframes, combined_start_time, combine
                     ax.scatter(sensor_df.loc[max_idx, 'time_dt'], sensor_df.loc[max_idx, y_col_transformed], color='red', s=100, picker=5)
                     ax.scatter(sensor_df.loc[min_idx, 'time_dt'], sensor_df.loc[min_idx, y_col_transformed], color='blue', s=100)
 
+                    # 피크 및 베이스라인 탐지
+                    median_value = sensor_df[y_col_transformed].median()
+                    prominence_value = median_value * 0.0005  # 중앙값의 1%로 prominence 설정
+
+                    peaks, _ = find_peaks(sensor_df[y_col_transformed], distance=10, prominence=prominence_value)
+                    change_threshold_relative = sensor_df[y_col_transformed].median() * 0.01  # 중앙값에서 1% 변동 기준
+                    change_threshold_absolute = 0.0004  # 절대적 변화 기준 설정 (예: 0.0004)
+
+                    for i, peak_idx in enumerate(peaks):
+                        if i == 0:
+                            # 첫 번째 피크의 경우, 피크가 증가하기 시작한 값을 찾음
+                            for j in range(peak_idx, 0, -1):
+                                if sensor_df[y_col_transformed].iloc[j] < sensor_df[y_col_transformed].iloc[peak_idx] - max(change_threshold_relative, change_threshold_absolute):
+                                    start_idx = j
+                                    break
+                            else:
+                                start_idx = 0
+                            if start_idx < peak_idx:
+                                baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                                base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                                base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx] if base_resistance_idx >= 0 and base_resistance_idx < len(sensor_df) else None
+                            else:
+                                continue
+                        else:
+                            # 피크와 피크 사이에서 가장 낮은 값을 베이스라인으로 설정
+                            start_idx = peaks[i-1]
+                            if start_idx < peak_idx:
+                                baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                                base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                                base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx] if base_resistance_idx >= 0 and base_resistance_idx < len(sensor_df) else None
+                            else:
+                                continue
+                        
+                        if base_resistance is None:
+                            continue
+
+                        peak_resistance = sensor_df[y_col_transformed].iloc[peak_idx]
+                        resistance_diff = peak_resistance - base_resistance  # ΔΩ을 계산
+                        
+                        # 저항 변화값 기준을 초과하는 경우에만 표시
+                        if resistance_diff >= max(change_threshold_relative, change_threshold_absolute):
+                            try:
+                                # 피크 최고점에서 수직으로 베이스라인까지 실선
+                                ax.plot([sensor_df['time_dt'].iloc[peak_idx], sensor_df['time_dt'].iloc[peak_idx]], [sensor_df[y_col_transformed].iloc[peak_idx], baseline], color='red', linestyle='-', linewidth=0.5)
+                                # 베이스라인에서 수평으로 피크 정점 시간까지 실선
+                                ax.plot([sensor_df['time_dt'].iloc[start_idx], sensor_df['time_dt'].iloc[peak_idx]], [baseline, baseline], color='red', linestyle='-', linewidth=0.5)
+                                
+                                ax.scatter(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], color='red', zorder=5)
+                                ax.text(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], f'ΔΩ: {resistance_diff:.5f}', color='red', fontsize=9)
+                            except Exception as e:
+                                print(f"Error plotting peak: {e}")
+
                 y_min, y_max = ax.get_ylim()
                 date_str = date.toString("yyyy-MM-dd")
                 configure_ax(ax, self.combined_start_time, self.combined_end_time, self.injection_times, y_max, date_str, specific_chamber_id=chamber_id, specific_chamber_type=chamber_type)
@@ -815,6 +959,58 @@ def plot_sensor_data_by_chamber_separate(chamber_dataframes, combined_start_time
                 min_idx = sensor_df[y_col_transformed].idxmin()
                 ax.scatter(sensor_df.loc[max_idx, 'time_dt'], sensor_df.loc[max_idx, y_col_transformed], color='red', s=100, picker=5)
                 ax.scatter(sensor_df.loc[min_idx, 'time_dt'], sensor_df.loc[min_idx, y_col_transformed], color='blue', s=100)
+                # 피크 및 베이스라인 탐지
+
+                median_value = sensor_df[y_col_transformed].median()
+                prominence_value = median_value * 0.0005  # 중앙값의 1%로 prominence 설정
+
+                peaks, _ = find_peaks(sensor_df[y_col_transformed], distance=10, prominence=prominence_value)
+                change_threshold_relative = sensor_df[y_col_transformed].median() * 0.01  # 중앙값에서 1% 변동 기준
+                change_threshold_absolute = 0.0004  # 절대적 변화 기준 설정 (예: 0.0004)
+
+                for i, peak_idx in enumerate(peaks):
+                    if i == 0:
+                        # 첫 번째 피크의 경우, 피크가 증가하기 시작한 값을 찾음
+                        for j in range(peak_idx, 0, -1):
+                            if sensor_df[y_col_transformed].iloc[j] < sensor_df[y_col_transformed].iloc[peak_idx] - max(change_threshold_relative, change_threshold_absolute):
+                                start_idx = j
+                                break
+                        else:
+                            start_idx = 0
+                        if start_idx < peak_idx:
+                            baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                            base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                            base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx] if base_resistance_idx >= 0 and base_resistance_idx < len(sensor_df) else None
+                        else:
+                            continue
+                    else:
+                        # 피크와 피크 사이에서 가장 낮은 값을 베이스라인으로 설정
+                        start_idx = peaks[i-1]
+                        if start_idx < peak_idx:
+                            baseline = np.min(sensor_df[y_col_transformed].iloc[start_idx:peak_idx])
+                            base_resistance_idx = sensor_df[y_col_transformed].iloc[start_idx:peak_idx].idxmin()
+                            base_resistance = sensor_df[y_col_transformed].iloc[base_resistance_idx] if base_resistance_idx >= 0 and base_resistance_idx < len(sensor_df) else None
+                        else:
+                            continue
+
+                    if base_resistance is None:
+                        continue
+
+                    peak_resistance = sensor_df[y_col_transformed].iloc[peak_idx]
+                    resistance_diff = peak_resistance - base_resistance  # ΔΩ을 계산
+
+                    # 저항 변화값 기준을 초과하는 경우에만 표시
+                    if resistance_diff >= max(change_threshold_relative, change_threshold_absolute):
+                        try:
+                            # 피크 최고점에서 수직으로 베이스라인까지 실선
+                            ax.plot([sensor_df['time_dt'].iloc[peak_idx], sensor_df['time_dt'].iloc[peak_idx]], [sensor_df[y_col_transformed].iloc[peak_idx], baseline], color='red', linestyle='-', linewidth=0.5)
+                            # 베이스라인에서 수평으로 피크 정점 시간까지 실선
+                            ax.plot([sensor_df['time_dt'].iloc[start_idx], sensor_df['time_dt'].iloc[peak_idx]], [baseline, baseline], color='red', linestyle='-', linewidth=0.5)
+
+                            ax.scatter(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], color='red', zorder=5)
+                            ax.text(sensor_df['time_dt'].iloc[peak_idx], sensor_df[y_col_transformed].iloc[peak_idx], f'ΔΩ: {resistance_diff:.5f}', color='red', fontsize=9)
+                        except Exception as e:
+                            print(f"Error plotting peak: {e}")
 
                 y_min, y_max = ax.get_ylim()
                 date_str = qdate.toString("yyyy-MM-dd")

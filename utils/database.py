@@ -134,47 +134,46 @@ def fetch_injection_data():
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            sql = "SELECT * FROM injection_data ORDER BY injection_time"
+            sql = "SELECT idx, injection_time, injection_condition, review, chamber_id, chamber_type FROM injection_data ORDER BY injection_time"
             cursor.execute(sql)
             result = cursor.fetchall()
     finally:
         connection.close()
     return result
 
-def update_injection_data(idx, injection_time, injection_condition, review):
+def update_injection_data(idx, injection_time, injection_condition, review, chamber_id, chamber_type):
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             sql = """
                 UPDATE injection_data 
-                SET injection_time = %s, injection_condition = %s, review = %s
+                SET injection_time = %s, injection_condition = %s, review = %s, chamber_id = %s, chamber_type = %s
                 WHERE idx = %s
             """
-            cursor.execute(sql, (injection_time, injection_condition, review, idx))
+            cursor.execute(sql, (injection_time, injection_condition, review, chamber_id, chamber_type, idx))
         connection.commit()
     finally:
         connection.close()
 
 def delete_injection_data(idx):
-    # connection = get_db_connection()
-    # try:
-    #     with connection.cursor() as cursor:
-    #         sql = "DELETE FROM injection_data WHERE idx = %s"
-    #         cursor.execute(sql, (idx,))
-    #     connection.commit()
-    # finally:
-    #     connection.close()
-    pass
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            sql = "DELETE FROM injection_data WHERE idx = %s"
+            cursor.execute(sql, (idx,))
+        connection.commit()
+    finally:
+        connection.close()
 
-def insert_injection_data(injection_time, injection_condition, review):
+def insert_injection_data(injection_time, injection_condition, review, chamber_id, chamber_type):
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             sql = """
-                INSERT INTO injection_data (injection_time, injection_condition, review)
-                VALUES (%s, %s, %s)
+                INSERT INTO injection_data (injection_time, injection_condition, review, chamber_id, chamber_type)
+                VALUES (%s, %s, %s, %s, %s)
             """
-            cursor.execute(sql, (injection_time, injection_condition, review))
+            cursor.execute(sql, (injection_time, injection_condition, review, chamber_id, chamber_type))
         connection.commit()
     finally:
         connection.close()
@@ -343,54 +342,6 @@ def query_injection_conditions_small(start_time: datetime, end_time: datetime, s
     
     return injection_data
 
-def fetch_injection_data_small():
-    connection = get_db_connection_small()
-    try:
-        with connection.cursor() as cursor:
-            sql = "SELECT * FROM injection_data ORDER BY injection_time"
-            cursor.execute(sql)
-            result = cursor.fetchall()
-    finally:
-        connection.close()
-    return result
-
-def update_injection_data_small(idx, injection_time, injection_condition, review):
-    connection = get_db_connection_small()
-    try:
-        with connection.cursor() as cursor:
-            sql = """
-                UPDATE injection_data 
-                SET injection_time = %s, injection_condition = %s, review = %s
-                WHERE idx = %s
-            """
-            cursor.execute(sql, (injection_time, injection_condition, review, idx))
-        connection.commit()
-    finally:
-        connection.close()
-
-def delete_injection_data_small(idx):
-    # connection = get_db_connection()
-    # try:
-    #     with connection.cursor() as cursor:
-    #         sql = "DELETE FROM injection_data WHERE idx = %s"
-    #         cursor.execute(sql, (idx,))
-    #     connection.commit()
-    # finally:
-    #     connection.close()
-    pass
-
-def insert_injection_data_small(injection_time, injection_condition, review):
-    connection = get_db_connection_small()
-    try:
-        with connection.cursor() as cursor:
-            sql = """
-                INSERT INTO injection_data (injection_time, injection_condition, review)
-                VALUES (%s, %s, %s)
-            """
-            cursor.execute(sql, (injection_time, injection_condition, review))
-        connection.commit()
-    finally:
-        connection.close()
 
 def fetch_manufacturing_data_small(order_by_column, ascending):
     connection = get_db_connection_small()
