@@ -20,7 +20,8 @@ from utils.plot import (
     plot_data_volt, plot_ratio_data_volt, plot_multi_data_volt, plot_static_combine_volt,
     plot_ratio_combine_volt, plot_data_rs, plot_ratio_data_rs, plot_multi_data_rs, plot_static_combine_rs,
     plot_ratio_combine_rs,plot_data_volt_small, plot_ratio_data_volt_small, plot_multi_data_volt_small,
-    plot_data_rs_small, plot_ratio_data_rs_small, plot_multi_data_rs_small,plot_data_volt_small_separate,plot_data_rs_small_separate
+    plot_data_rs_small, plot_ratio_data_rs_small, plot_multi_data_rs_small,plot_data_volt_small_separate,plot_data_rs_small_separate,
+    plot_data_volt_small_enumerate,plot_data_rs_small_enumerate
     
 )
 import matplotlib.pyplot as plt
@@ -80,6 +81,9 @@ class TSEI_PSRGVSystem(QMainWindow):
         # Initialize UI elements
         self.sensor_id_scroll_area = QScrollArea()
         self.sensor_id_list_widget = QListWidget()
+        self.sensor_id_scroll_area.setWidget(self.sensor_id_list_widget)
+
+        self.sensor_id_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
     def closeEvent(self, event):
         QApplication.instance().quit()
     def create_menu(self):
@@ -188,15 +192,14 @@ class TSEI_PSRGVSystem(QMainWindow):
         self.clear_layout(self.right_frame)
         layout = QVBoxLayout()
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Chamber Type', 'Chamber ID', 'Review'])
+        self.table.setColumnCount(5)  # Update column count to 5
+        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Chamber Type', 'Chamber ID'])
         self.load_injection_data()
         self.table.setColumnWidth(0, 50)
         self.table.setColumnWidth(1, 200)
         self.table.setColumnWidth(2, 200)
         self.table.setColumnWidth(3, 100)
         self.table.setColumnWidth(4, 100)
-        self.table.setColumnWidth(5, 350)
         layout.addWidget(self.table)
         button_layout = QHBoxLayout()
         buttons = [
@@ -211,6 +214,86 @@ class TSEI_PSRGVSystem(QMainWindow):
             button_layout.addWidget(button)
         layout.addLayout(button_layout)
         self.left_frame.addLayout(layout)
+
+    def load_injection_data(self):
+        injection_data = fetch_injection_data()
+        self.table.setRowCount(len(injection_data))
+        for row_index, row_data in enumerate(injection_data):
+            self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
+            self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
+            self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
+            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['chamber_type'])))
+            self.table.setItem(row_index, 4, QTableWidgetItem(str(row_data['chamber_id'])))
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+    def add_injection_data(self):
+        self.modify_injection_data(insert_injection_data)
+
+    def update_injection_data(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            row = selected_rows[0].row()
+            idx = self.table.item(row, 0).text()
+            self.modify_injection_data(update_injection_data, idx)
+        else:
+            QMessageBox.warning(self, "No selection", "Please select a row to update.")
+
+    def delete_injection_data(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            for row in selected_rows:
+                idx = self.table.item(row.row(), 0).text()
+                delete_injection_data(idx)
+            self.load_injection_data()
+        else:
+            QMessageBox.warning(self, "No selection", "Please select a row to delete.")
+
+    def modify_injection_data(self, db_func, idx=None):
+        injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
+        if not ok1:
+            return
+
+        injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
+        if not ok2:
+            return
+
+        # Chamber Type Selection
+        chamber_type_dialog = QDialog(self)
+        chamber_type_dialog.setWindowTitle('Select Chamber Type')
+        layout = QVBoxLayout()
+        chamber_type_combo = QComboBox()
+        chamber_type_combo.addItems(['40channel', '4 Channel'])
+        layout.addWidget(QLabel("Select Chamber Type:"))
+        layout.addWidget(chamber_type_combo)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(chamber_type_dialog.accept)
+        buttons.rejected.connect(chamber_type_dialog.reject)
+        layout.addWidget(buttons)
+        chamber_type_dialog.setLayout(layout)
+
+        chamber_type = None
+        if chamber_type_dialog.exec_() == QDialog.Accepted:
+            chamber_type = chamber_type_combo.currentText()
+        else:
+            return
+
+        # Chamber ID Input
+        while True:
+            chamber_id, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter chamber ID (single digit):')
+            if not ok3:
+                return
+            if chamber_id.isdigit() and len(chamber_id) == 1:
+                break
+            QMessageBox.warning(self, "Invalid input", "Please enter a single digit for chamber ID.")
+
+        if idx is None:
+            db_func(injection_time, injection_condition, chamber_id, chamber_type)
+        else:
+            db_func(idx, injection_time, injection_condition, chamber_id, chamber_type)
+
+        self.load_injection_data()
+
 
     def manufacturing_process_options(self):
         self.clear_layout(self.left_frame)
@@ -316,97 +399,16 @@ class TSEI_PSRGVSystem(QMainWindow):
             self.table.setItem(row_index, 16, QTableWidgetItem(str(row_data['review'])))
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
-    def load_injection_data(self):
-        injection_data = fetch_injection_data()
-        self.table.setRowCount(len(injection_data))
-        for row_index, row_data in enumerate(injection_data):
-            self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
-            self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
-            self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
-            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['chamber_type'])))
-            self.table.setItem(row_index, 4, QTableWidgetItem(str(row_data['chamber_id'])))
-            self.table.setItem(row_index, 5, QTableWidgetItem(str(row_data['review'])))
-        self.table.resizeColumnsToContents()
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-
-    def add_injection_data(self):
-        self.modify_injection_data(insert_injection_data)
-
-    def update_injection_data(self):
-        selected_rows = self.table.selectionModel().selectedRows()
-        if selected_rows:
-            row = selected_rows[0].row()
-            idx = self.table.item(row, 0).text()
-            self.modify_injection_data(update_injection_data, idx)
-        else:
-            QMessageBox.warning(self, "No selection", "Please select a row to update.")
-
-    def delete_injection_data(self):
-        selected_rows = self.table.selectionModel().selectedRows()
-        if selected_rows:
-            for row in selected_rows:
-                idx = self.table.item(row.row(), 0).text()
-                delete_injection_data(idx)
-            self.load_injection_data()
-        else:
-            QMessageBox.warning(self, "No selection", "Please select a row to delete.")
-
-    def modify_injection_data(self, db_func, idx=None):
-        injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
-        if not ok1:
-            return
-        
-        injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
-        if not ok2:
-            return
-        
-        # Chamber Type Selection
-        chamber_type_dialog = QDialog(self)
-        chamber_type_dialog.setWindowTitle('Select Chamber Type')
-        layout = QVBoxLayout()
-        chamber_type_combo = QComboBox()
-        chamber_type_combo.addItems(['40channel', '4 Channel'])
-        layout.addWidget(QLabel("Select Chamber Type:"))
-        layout.addWidget(chamber_type_combo)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(chamber_type_dialog.accept)
-        buttons.rejected.connect(chamber_type_dialog.reject)
-        layout.addWidget(buttons)
-        chamber_type_dialog.setLayout(layout)
-        
-        chamber_type = None
-        if chamber_type_dialog.exec_() == QDialog.Accepted:
-            chamber_type = chamber_type_combo.currentText()
-        else:
-            return
-        
-        # Chamber ID Input
-        while True:
-            chamber_id, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter chamber ID (single digit):')
-            if not ok3:
-                return
-            if chamber_id.isdigit() and len(chamber_id) == 1:
-                break
-            QMessageBox.warning(self, "Invalid input", "Please enter a single digit for chamber ID.")
-        
-        review, ok4 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
-        if not ok4:
-            review = None
-        
-        if idx is None:
-            db_func(injection_time, injection_condition, review, chamber_id, chamber_type)
-        else:
-            db_func(idx, injection_time, injection_condition, review, chamber_id, chamber_type)
-        
-        self.load_injection_data()
-
     def create_graphic_options(self, button_text, visualize_func):
         self.selected_sensor_id = []
         self.date_time_pairs = []
+        
+        # 날짜 선택 레이아웃 생성
         date_selection_layout = QVBoxLayout()
         date_selection_button = QPushButton('날짜 선택')
         date_selection_button.clicked.connect(self.add_date)
         date_selection_layout.addWidget(date_selection_button)
+        
         self.date_label_layout = QVBoxLayout()
         date_scroll_area = QScrollArea()
         date_scroll_area.setWidgetResizable(True)
@@ -415,6 +417,8 @@ class TSEI_PSRGVSystem(QMainWindow):
         date_scroll_area.setWidget(date_widget)
         date_selection_layout.addWidget(date_scroll_area)
         self.left_frame.addLayout(date_selection_layout)
+        
+        # Sensor ID 선택 레이아웃 생성
         sensor_id_layout = QHBoxLayout()
         sensor_id_button = QPushButton('Sensor ID 선택')
         sensor_id_button.clicked.connect(self.select_sensor_ids)
@@ -422,9 +426,15 @@ class TSEI_PSRGVSystem(QMainWindow):
         self.selected_sensor_ids_label = QLabel('')
         sensor_id_layout.addWidget(self.selected_sensor_ids_label)
         self.left_frame.addLayout(sensor_id_layout)
+        
+        # 시각화 버튼 추가
         visualize_button = QPushButton(button_text)
         visualize_button.clicked.connect(visualize_func)
         self.left_frame.addWidget(visualize_button)
+        
+        # 선택한 Sensor ID를 표시할 QListWidget 추가
+        self.sensor_id_list_widget = QListWidget()
+        self.right_frame.addWidget(self.sensor_id_list_widget)
 
     def add_date(self):
         selected_date = self.select_date()
@@ -531,6 +541,12 @@ class TSEI_PSRGVSystem(QMainWindow):
             self.date_time_pairs = [dt for dt in self.date_time_pairs if dt[0] != self.current_date]
         return selected_times
 
+    def update_selected_sensor_list(self):
+        self.sensor_id_list_widget.clear()
+        for sensor_id in self.selected_sensor_id:
+            item = QListWidgetItem(f"Sensor ID {sensor_id}")
+            self.sensor_id_list_widget.addItem(item)
+
     def select_sensor_ids(self):
         dialog = QDialog(self)
         dialog.setWindowTitle('Select Sensor IDs')
@@ -564,7 +580,7 @@ class TSEI_PSRGVSystem(QMainWindow):
                 print(f"Error: {e}")
                 df = pd.DataFrame(columns=['sensor_name', 'applied_polymer', 'solvent'])
             df_list.append(df)
-        
+
         if df_list:
             concated_df = pd.concat(df_list, ignore_index=True)
             polymer_list = concated_df['applied_polymer'].unique()
@@ -623,10 +639,11 @@ class TSEI_PSRGVSystem(QMainWindow):
 
         if dialog.exec_() == QDialog.Accepted:
             self.selected_sensor_id = [i + 1 for i, var in enumerate(self.sensor_id_vars) if var.isChecked()]
-            self.sensor_id_list_widget.clear()
-            for sensor_id in self.selected_sensor_id:
-                item = QListWidgetItem(f"Sensor ID {sensor_id}")
-                self.sensor_id_list_widget.addItem(item)
+            
+            self.update_selected_sensor_list()
+            
+            selected_sensors_text = ', '.join(map(str, self.selected_sensor_id))
+            self.selected_sensor_ids_label.setText(selected_sensors_text)
 
     def toggle_all_sensor_ids(self, sensor_id_vars, all_select_checkbox):
         state = all_select_checkbox.isChecked()
@@ -650,47 +667,6 @@ class TSEI_PSRGVSystem(QMainWindow):
             sensor_id = int(checkbox.text())
             if sensor_id in sensor_ids:
                 checkbox.setChecked(state)
-
-    def select_sensor_ids_old(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle('Select Sensor IDs')
-
-        layout = QVBoxLayout()
-        sensor_id_vars = []
-
-        all_select_checkbox = QCheckBox('All Select')
-        all_select_checkbox.stateChanged.connect(lambda: self.toggle_all_sensor_ids(sensor_id_vars, all_select_checkbox))
-        layout.addWidget(all_select_checkbox)
-
-        range_select_layout = QHBoxLayout()
-        for start in range(1, 41, 10):
-            end = start + 9
-            range_checkbox = QCheckBox(f'{start}-{end}')
-            range_checkbox.stateChanged.connect(lambda state, start=start, end=end: self.toggle_range_sensor_ids(sensor_id_vars, start, end, state))
-            range_select_layout.addWidget(range_checkbox)
-        layout.addLayout(range_select_layout)
-
-        for i in range(4):
-            row_layout = QHBoxLayout()
-            for j in range(10):
-                checkbox = QCheckBox(str(i * 10 + j + 1))
-                row_layout.addWidget(checkbox)
-                sensor_id_vars.append(checkbox)
-            layout.addLayout(row_layout)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        dialog.setLayout(layout)
-
-        if dialog.exec_() == QDialog.Accepted:
-            self.selected_sensor_id = [i + 1 for i, var in enumerate(sensor_id_vars) if var.isChecked()]
-            self.sensor_id_list_widget.clear()
-            for sensor_id in self.selected_sensor_id:
-                item = QListWidgetItem(f"Sensor ID {sensor_id}")
-                self.sensor_id_list_widget.addItem(item)
-
 
     def visualize_graph(self, plot_func):
         try:
@@ -767,10 +743,13 @@ class TSEI_PSRGVSystem(QMainWindow):
 
         self.sensor_id_button = QPushButton('Sensor ID 선택')
         
-        #self.date_time_pairs = [(QDateTime.currentDateTime().date(),0,0)]
-        self.sensor_id_button.clicked.connect(self.select_sensor_ids_old)
+        self.sensor_id_button.clicked.connect(self.select_sensor_ids)
+        
+        self.sensor_id_scroll_area = QScrollArea()
+        self.sensor_id_list_widget = QListWidget()
         self.sensor_id_scroll_area.setWidget(self.sensor_id_list_widget)
         self.sensor_id_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
+        
         self.right_frame.addWidget(self.sensor_id_button)
         self.right_frame.addWidget(self.sensor_id_scroll_area)
 
@@ -794,11 +773,19 @@ class TSEI_PSRGVSystem(QMainWindow):
         self.real_time_button.setEnabled(True)
         self.stop_real_time_button.setEnabled(False)
 
-
     def start_real_time_analysis(self):
         interval_mapping = {"5초": 5000, "10초": 10000, "30초": 30000, "60초": 60000}
         selected_interval = self.interval_selection.currentText()
         if selected_interval in interval_mapping:
+            # 기존 figure와 ax가 없는 경우에만 새로운 figure와 ax를 생성합니다.
+            if not hasattr(self, 'figure') or not hasattr(self, 'ax'):
+                self.figure, self.ax = plt.subplots()
+                self.canvas = FigureCanvas(self.figure)
+                self.left_frame.addWidget(self.canvas)
+            elif hasattr(self, 'canvas'):
+                # 만약 canvas가 존재하면 다시 추가
+                self.left_frame.addWidget(self.canvas)
+
             self.timer.start(interval_mapping[selected_interval])
             self.real_time_button.setEnabled(False)
             self.stop_real_time_button.setEnabled(True)
@@ -808,6 +795,23 @@ class TSEI_PSRGVSystem(QMainWindow):
         self.timer.stop()
         self.real_time_button.setEnabled(True)
         self.stop_real_time_button.setEnabled(False)
+        self.cleanup_real_time_analysis()
+
+    def cleanup_real_time_analysis(self):
+        if hasattr(self, 'canvas'):
+            self.canvas.close()
+            del self.canvas
+        if hasattr(self, 'figure'):
+            plt.close(self.figure)
+            del self.figure
+        if hasattr(self, 'ax'):
+            del self.ax
+
+        if hasattr(self, 'sensor_id_list_widget') and self.sensor_id_list_widget is not None:
+            self.sensor_id_list_widget.clear()
+        else:
+            self.sensor_id_list_widget = QListWidget()
+            self.sensor_id_scroll_area.setWidget(self.sensor_id_list_widget)
 
     def update_graph(self):
         time_range = self.time_selection.currentText()
@@ -878,16 +882,18 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         graphic_menu_volt_small.addAction("Ratio Graph (Volt)", self.ratio_graphic_volt_small)
         graphic_menu_volt_small.addAction('Multi Graph (Volt)', self.multi_graphic_volt_small)
         graphic_menu_volt_small.addAction("Separate Graph (Volt)", self.static_graphic_volt_small_separate)
+        graphic_menu_volt_small.addAction("Enumerate Graph (Volt)", self.static_graphic_volt_small_enumerate)
 
         graphic_menu_rs_small = self.menu_bar.addMenu("RS_Graphic")
         graphic_menu_rs_small.addAction("Static Graph (Rs)", self.static_graphic_rs_small)
         graphic_menu_rs_small.addAction("Ratio Graph (Rs)", self.ratio_graphic_rs_small)
         graphic_menu_rs_small.addAction('Multi Graph (Rs)', self.multi_graphic_rs_small)
         graphic_menu_rs_small.addAction("Separate Graph (Rs)", self.static_graphic_rs_small_separate)
+        graphic_menu_rs_small.addAction("Enumerate Graph (Rs)", self.static_graphic_rs_small_enumerate)
 
         self.menu_bar.addAction("Reset", self.reset_small)
         self.menu_bar.addAction("Chamber Information", self.chamber_information_options)
-        self.menu_bar.addAction("Manufacturing Process", self.manufacturing_process_options_small)
+        #self.menu_bar.addAction("Manufacturing Process", self.manufacturing_process_options_small)
         self.menu_bar.addAction("Real-time Analysis", self.real_time_analysis_options_small)
 
     def show_intro_text_small(self):
@@ -947,6 +953,16 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.clear_layout_small(self.right_frame)
         self.create_graphic_options_small('Separate Visualization (Rs)', self.visualize_static_rs_small_separate)
 
+    def static_graphic_volt_small_enumerate(self):
+        self.clear_layout_small(self.left_frame)
+        self.clear_layout_small(self.right_frame)
+        self.create_graphic_options_small('Enumerate Visualization (Volt)', self.visualize_static_volt_small_enumerate)
+
+    def static_graphic_rs_small_enumerate(self):
+        self.clear_layout_small(self.left_frame)
+        self.clear_layout_small(self.right_frame)
+        self.create_graphic_options_small('Enumerate Visualization (Rs)', self.visualize_static_rs_small_enumerate)
+
     def reset_small(self):
         self.clear_layout_small(self.left_frame)
         self.clear_layout_small(self.right_frame)
@@ -967,15 +983,14 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.clear_layout_small(self.right_frame)
         layout = QVBoxLayout()
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Chamber Type', 'Chamber ID', 'Review'])
+        self.table.setColumnCount(5)  # Update column count to 5
+        self.table.setHorizontalHeaderLabels(['Idx', 'Injection Time', 'Injection Condition', 'Chamber Type', 'Chamber ID'])
         self.load_injection_data()
         self.table.setColumnWidth(0, 50)
         self.table.setColumnWidth(1, 200)
         self.table.setColumnWidth(2, 200)
         self.table.setColumnWidth(3, 100)
         self.table.setColumnWidth(4, 100)
-        self.table.setColumnWidth(5, 350)
         layout.addWidget(self.table)
         button_layout = QHBoxLayout()
         buttons = [
@@ -990,6 +1005,86 @@ class TSEI_PSRGVSystem_small(QMainWindow):
             button_layout.addWidget(button)
         layout.addLayout(button_layout)
         self.left_frame.addLayout(layout)
+
+    def load_injection_data(self):
+        injection_data = fetch_injection_data()
+        self.table.setRowCount(len(injection_data))
+        for row_index, row_data in enumerate(injection_data):
+            self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
+            self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
+            self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
+            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['chamber_type'])))
+            self.table.setItem(row_index, 4, QTableWidgetItem(str(row_data['chamber_id'])))
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+    def add_injection_data(self):
+        self.modify_injection_data(insert_injection_data)
+
+    def update_injection_data(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            row = selected_rows[0].row()
+            idx = self.table.item(row, 0).text()
+            self.modify_injection_data(update_injection_data, idx)
+        else:
+            QMessageBox.warning(self, "No selection", "Please select a row to update.")
+
+    def delete_injection_data(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            for row in selected_rows:
+                idx = self.table.item(row.row(), 0).text()
+                delete_injection_data(idx)
+            self.load_injection_data()
+        else:
+            QMessageBox.warning(self, "No selection", "Please select a row to delete.")
+
+    def modify_injection_data(self, db_func, idx=None):
+        injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
+        if not ok1:
+            return
+
+        injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
+        if not ok2:
+            return
+
+        # Chamber Type Selection
+        chamber_type_dialog = QDialog(self)
+        chamber_type_dialog.setWindowTitle('Select Chamber Type')
+        layout = QVBoxLayout()
+        chamber_type_combo = QComboBox()
+        chamber_type_combo.addItems(['40channel', '4 Channel'])
+        layout.addWidget(QLabel("Select Chamber Type:"))
+        layout.addWidget(chamber_type_combo)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(chamber_type_dialog.accept)
+        buttons.rejected.connect(chamber_type_dialog.reject)
+        layout.addWidget(buttons)
+        chamber_type_dialog.setLayout(layout)
+
+        chamber_type = None
+        if chamber_type_dialog.exec_() == QDialog.Accepted:
+            chamber_type = chamber_type_combo.currentText()
+        else:
+            return
+
+        # Chamber ID Input
+        while True:
+            chamber_id, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter chamber ID (single digit):')
+            if not ok3:
+                return
+            if chamber_id.isdigit() and len(chamber_id) == 1:
+                break
+            QMessageBox.warning(self, "Invalid input", "Please enter a single digit for chamber ID.")
+
+        if idx is None:
+            db_func(injection_time, injection_condition, chamber_id, chamber_type)
+        else:
+            db_func(idx, injection_time, injection_condition, chamber_id, chamber_type)
+
+        self.load_injection_data()
+
 
     def manufacturing_process_options_small(self):
         self.clear_layout_small(self.left_frame)
@@ -1095,99 +1190,17 @@ class TSEI_PSRGVSystem_small(QMainWindow):
             self.table.setItem(row_index, 16, QTableWidgetItem(str(row_data['review'])))
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
-
-    def load_injection_data(self):
-        injection_data = fetch_injection_data()
-        self.table.setRowCount(len(injection_data))
-        for row_index, row_data in enumerate(injection_data):
-            self.table.setItem(row_index, 0, QTableWidgetItem(str(row_data['idx'])))
-            self.table.setItem(row_index, 1, QTableWidgetItem(str(row_data['injection_time'])))
-            self.table.setItem(row_index, 2, QTableWidgetItem(str(row_data['injection_condition'])))
-            self.table.setItem(row_index, 3, QTableWidgetItem(str(row_data['chamber_type'])))
-            self.table.setItem(row_index, 4, QTableWidgetItem(str(row_data['chamber_id'])))
-            self.table.setItem(row_index, 5, QTableWidgetItem(str(row_data['review'])))
-        self.table.resizeColumnsToContents()
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-
-    def add_injection_data(self):
-        self.modify_injection_data(insert_injection_data)
-
-    def update_injection_data(self):
-        selected_rows = self.table.selectionModel().selectedRows()
-        if selected_rows:
-            row = selected_rows[0].row()
-            idx = self.table.item(row, 0).text()
-            self.modify_injection_data(update_injection_data, idx)
-        else:
-            QMessageBox.warning(self, "No selection", "Please select a row to update.")
-
-    def delete_injection_data(self):
-        selected_rows = self.table.selectionModel().selectedRows()
-        if selected_rows:
-            for row in selected_rows:
-                idx = self.table.item(row.row(), 0).text()
-                delete_injection_data(idx)
-            self.load_injection_data()
-        else:
-            QMessageBox.warning(self, "No selection", "Please select a row to delete.")
-
-    def modify_injection_data(self, db_func, idx=None):
-        injection_time, ok1 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection time (YYYY-MM-DD HH:MM:SS):')
-        if not ok1:
-            return
-        
-        injection_condition, ok2 = QInputDialog.getText(self, 'Input Dialog', 'Enter injection condition:')
-        if not ok2:
-            return
-        
-        # Chamber Type Selection
-        chamber_type_dialog = QDialog(self)
-        chamber_type_dialog.setWindowTitle('Select Chamber Type')
-        layout = QVBoxLayout()
-        chamber_type_combo = QComboBox()
-        chamber_type_combo.addItems(['40channel', '4 Channel'])
-        layout.addWidget(QLabel("Select Chamber Type:"))
-        layout.addWidget(chamber_type_combo)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(chamber_type_dialog.accept)
-        buttons.rejected.connect(chamber_type_dialog.reject)
-        layout.addWidget(buttons)
-        chamber_type_dialog.setLayout(layout)
-        
-        chamber_type = None
-        if chamber_type_dialog.exec_() == QDialog.Accepted:
-            chamber_type = chamber_type_combo.currentText()
-        else:
-            return
-        
-        # Chamber ID Input
-        while True:
-            chamber_id, ok3 = QInputDialog.getText(self, 'Input Dialog', 'Enter chamber ID (single digit):')
-            if not ok3:
-                return
-            if chamber_id.isdigit() and len(chamber_id) == 1:
-                break
-            QMessageBox.warning(self, "Invalid input", "Please enter a single digit for chamber ID.")
-        
-        review, ok4 = QInputDialog.getText(self, 'Input Dialog', 'Enter review (optional):')
-        if not ok4:
-            review = None
-        
-        if idx is None:
-            db_func(injection_time, injection_condition, review, chamber_id, chamber_type)
-        else:
-            db_func(idx, injection_time, injection_condition, review, chamber_id, chamber_type)
-        
-        self.load_injection_data()
-
-
     def create_graphic_options_small(self, button_text, visualize_func):
         self.selected_sensor_data = {}
         self.date_time_pairs = []
+
+        # 날짜 선택 레이아웃 생성
         date_selection_layout = QVBoxLayout()
         date_selection_button = QPushButton('날짜 선택')
         date_selection_button.clicked.connect(self.add_date_small)
         date_selection_layout.addWidget(date_selection_button)
+
+        # 날짜 레이블 레이아웃 생성
         self.date_label_layout = QVBoxLayout()
         date_scroll_area = QScrollArea()
         date_scroll_area.setWidgetResizable(True)
@@ -1195,17 +1208,31 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         date_widget.setLayout(self.date_label_layout)
         date_scroll_area.setWidget(date_widget)
         date_selection_layout.addWidget(date_scroll_area)
+
+        # 좌측 프레임에 날짜 선택 레이아웃 추가
         self.left_frame.addLayout(date_selection_layout)
+
+        # 챔버 ID 선택 레이아웃 생성
         sensor_id_layout = QHBoxLayout()
         sensor_id_button = QPushButton('Chamber ID 선택')
         sensor_id_button.clicked.connect(self.select_sensor_ids_small)
         sensor_id_layout.addWidget(sensor_id_button)
+
+        # 선택된 센서 ID를 표시할 레이블 추가
         self.selected_sensor_ids_label = QLabel('')
         sensor_id_layout.addWidget(self.selected_sensor_ids_label)
+        
+        # 좌측 프레임에 챔버 ID 선택 레이아웃 추가
         self.left_frame.addLayout(sensor_id_layout)
+
+        # 시각화 버튼 추가
         visualize_button = QPushButton(button_text)
         visualize_button.clicked.connect(visualize_func)
         self.left_frame.addWidget(visualize_button)
+
+        # 선택한 센서 ID와 챔버 ID를 표시할 QListWidget 추가
+        self.sensor_id_list_widget = QListWidget()
+        self.right_frame.addWidget(self.sensor_id_list_widget)
 
     def add_date_small(self):
         selected_date = self.select_date_small()
@@ -1400,11 +1427,7 @@ class TSEI_PSRGVSystem_small(QMainWindow):
                             self.selected_sensor_data[chamber_id] = []
                         self.selected_sensor_data[chamber_id].append(sensor_id)
 
-            self.sensor_id_list_widget.clear()
-            for chamber_id, sensor_ids in self.selected_sensor_data.items():
-                for sensor_id in sensor_ids:
-                    item = QListWidgetItem(f"Chamber {chamber_id} - Sensor ID {sensor_id}")
-                    self.sensor_id_list_widget.addItem(item)
+            self.update_selected_sensor_list()
 
     def toggle_chamber_sensor_ids_small(self, chamber_id, state):
         for checkbox in self.sensor_id_vars:
@@ -1430,6 +1453,12 @@ class TSEI_PSRGVSystem_small(QMainWindow):
             if sensor_id in sensor_ids:
                 checkbox.setChecked(state)
 
+    def update_selected_sensor_list(self):
+        self.sensor_id_list_widget.clear()
+        for chamber_id, sensor_ids in self.selected_sensor_data.items():
+            for sensor_id in sensor_ids:
+                item = QListWidgetItem(f"Chamber {chamber_id} - Sensor ID {sensor_id}")
+                self.sensor_id_list_widget.addItem(item)
 
     def visualize_graph_small(self, plot_func):
         try:
@@ -1487,6 +1516,12 @@ class TSEI_PSRGVSystem_small(QMainWindow):
     def visualize_static_rs_small_separate(self):
         self.visualize_graph_small(plot_data_rs_small_separate)
 
+    def visualize_static_volt_small_enumerate(self):
+        self.visualize_graph_small(plot_data_volt_small_enumerate)
+
+    def visualize_static_rs_small_enumerate(self):
+        self.visualize_graph_small(plot_data_rs_small_enumerate)
+
 
     def real_time_analysis_options_small(self):
         self.clear_layout_small(self.left_frame)
@@ -1502,11 +1537,13 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.date_time_pairs = []
 
         self.sensor_id_button = QPushButton('Sensor ID 선택')
-        
-        #self.date_time_pairs = [(QDateTime.currentDateTime().date(),0,0)]
         self.sensor_id_button.clicked.connect(self.select_sensor_ids_small)
+        
+        self.sensor_id_scroll_area = QScrollArea()
+        self.sensor_id_list_widget = QListWidget()
         self.sensor_id_scroll_area.setWidget(self.sensor_id_list_widget)
         self.sensor_id_list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
+        
         self.right_frame.addWidget(self.sensor_id_button)
         self.right_frame.addWidget(self.sensor_id_scroll_area)
 
@@ -1530,11 +1567,19 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.real_time_button.setEnabled(True)
         self.stop_real_time_button.setEnabled(False)
 
-
     def start_real_time_analysis_small(self):
         interval_mapping = {"5초": 5000, "10초": 10000, "30초": 30000, "60초": 60000}
         selected_interval = self.interval_selection.currentText()
         if selected_interval in interval_mapping:
+            # 기존 figure와 ax가 없는 경우에만 새로운 figure와 ax를 생성합니다.
+            if not hasattr(self, 'figure') or not hasattr(self, 'ax'):
+                self.figure, self.ax = plt.subplots()
+                self.canvas = FigureCanvas(self.figure)
+                self.left_frame.addWidget(self.canvas)
+            elif hasattr(self, 'canvas'):
+                # 만약 canvas가 존재하면 다시 추가
+                self.left_frame.addWidget(self.canvas)
+
             self.timer.start(interval_mapping[selected_interval])
             self.real_time_button.setEnabled(False)
             self.stop_real_time_button.setEnabled(True)
@@ -1544,7 +1589,21 @@ class TSEI_PSRGVSystem_small(QMainWindow):
         self.timer.stop()
         self.real_time_button.setEnabled(True)
         self.stop_real_time_button.setEnabled(False)
+        self.cleanup_real_time_analysis()
 
+    def cleanup_real_time_analysis(self):
+        if hasattr(self, 'canvas'):
+            self.canvas.close()
+            del self.canvas
+        if hasattr(self, 'figure'):
+            plt.close(self.figure)
+            del self.figure
+        if hasattr(self, 'ax'):
+            del self.ax
+
+        # sensor_id_list_widget 초기화
+        self.sensor_id_list_widget = QListWidget()
+        self.sensor_id_scroll_area.setWidget(self.sensor_id_list_widget)
     def update_graph_small(self):
         time_range = self.time_selection.currentText()
 

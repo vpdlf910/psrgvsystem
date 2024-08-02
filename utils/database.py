@@ -16,40 +16,80 @@ DB_USER_TEST = os.getenv('DB_USER_TEST')
 DB_PASSWORD_TEST = os.getenv('DB_PASSWORD_TEST')
 DATABASE_TEST = os.getenv('DATABASE_TEST')
 
-DB_HOST_SMALL = os.getenv('DB_HOST')
-DB_USER_SMALL = os.getenv('DB_USER')
-DB_PASSWORD_SMALL = os.getenv('DB_PASSWORD')
-DATABASE_SMALL = os.getenv('DATABASE')
+DB_HOST_SMALL = os.getenv('DB_HOST_SMALL')
+DB_USER_SMALL = os.getenv('DB_USER_SMALL')
+DB_PASSWORD_SMALL = os.getenv('DB_PASSWORD_SMALL')
+DATABASE_SMALL = os.getenv('DATABASE_SMALL')
 
-def query_sensor_data(start_time: datetime, end_time: datetime, sensor_ids: list):
-    connection = pymysql.connect(
-        host= DB_HOST,
+def get_db_connection():
+    """Establish and return a database connection."""
+    return pymysql.connect(
+        host=DB_HOST,
         user=DB_USER,
         password=DB_PASSWORD,
         database=DATABASE,
         cursorclass=DictCursor
     )
 
+def get_db_connection_test():
+    connection = pymysql.connect(
+        host=DB_HOST_TEST,
+        user=DB_USER_TEST,
+        password=DB_PASSWORD_TEST,
+        database=DATABASE_TEST,
+        cursorclass=DictCursor,
+        ssl_disabled=True
+    )
+    return connection
+
+def get_db_connection_small():
+    connection = pymysql.connect(
+        host=DB_HOST_SMALL,
+        user=DB_USER_SMALL,
+        password=DB_PASSWORD_SMALL,
+        database=DATABASE_SMALL,
+        cursorclass=DictCursor,
+        
+    )
+    return connection
+
+def get_db_connection_test_small():
+    try:
+        connection = pymysql.connect(
+            host='192.168.0.43',
+            user='pc_program',
+            password='tsei1234',
+            database='sensor_evaluation_system_4chamber',
+            port=3306,
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        print("Database connection successful")
+        return connection
+    except pymysql.MySQLError as e:
+        print(f"Error connecting to database: {e}")
+        return None
+    
+def query_sensor_data(start_time: datetime, end_time: datetime, sensor_ids: list):
+    connection = get_db_connection()
     sensor_data = []
-    placeholders = ','.join(['%s'] *len(sensor_ids))
+    placeholders = ','.join(['%s'] * len(sensor_ids))
     try:
         with connection.cursor() as cursor:
             sql = """
-            SELECT sensor_id,rs, volt, reg_date
+            SELECT sensor_id, rs, volt, reg_date
             FROM sensor_data 
             WHERE reg_date BETWEEN %s AND %s 
             AND sensor_id IN ({})
             """.format(placeholders)
-        
             cursor.execute(sql, [start_time, end_time] + sensor_ids)
             sensor_data = cursor.fetchall()
-                
     except pymysql.MySQLError as e:
         print(f"Error: {e}")
     finally:
         connection.close()
-
     return sensor_data
+
 
 def query_real_time_sensor_data(start_time: datetime, end_time: datetime, sensor_ids: list):
     connection = pymysql.connect(
@@ -82,21 +122,11 @@ def query_real_time_sensor_data(start_time: datetime, end_time: datetime, sensor
     return sensor_data
 
 
-def get_db_connection():
-    connection = pymysql.connect(
-        host=DB_HOST_TEST,
-        user=DB_USER_TEST,
-        password=DB_PASSWORD_TEST,
-        database=DATABASE_TEST,
-        cursorclass=DictCursor,
-        ssl_disabled=True
-    )
-    return connection
 
 
 def query_injection_conditions(start_time: datetime, end_time: datetime, sensor_ids: list):
-    connection = get_db_connection()
-
+    connection = get_db_connection_test()
+    
     injection_data = {}
     
     try:
@@ -131,32 +161,32 @@ def query_injection_conditions(start_time: datetime, end_time: datetime, sensor_
     return injection_data
 
 def fetch_injection_data():
-    connection = get_db_connection()
+    connection = get_db_connection_test()
     try:
         with connection.cursor() as cursor:
-            sql = "SELECT idx, injection_time, injection_condition, review, chamber_id, chamber_type FROM injection_data ORDER BY injection_time"
+            sql = "SELECT idx, injection_time, injection_condition, chamber_id, chamber_type FROM injection_data ORDER BY injection_time"
             cursor.execute(sql)
             result = cursor.fetchall()
     finally:
         connection.close()
     return result
 
-def update_injection_data(idx, injection_time, injection_condition, review, chamber_id, chamber_type):
-    connection = get_db_connection()
+def update_injection_data(idx, injection_time, injection_condition, chamber_id, chamber_type):
+    connection = get_db_connection_test()
     try:
         with connection.cursor() as cursor:
             sql = """
                 UPDATE injection_data 
-                SET injection_time = %s, injection_condition = %s, review = %s, chamber_id = %s, chamber_type = %s
+                SET injection_time = %s, injection_condition = %s, chamber_id = %s, chamber_type = %s
                 WHERE idx = %s
             """
-            cursor.execute(sql, (injection_time, injection_condition, review, chamber_id, chamber_type, idx))
+            cursor.execute(sql, (injection_time, injection_condition, chamber_id, chamber_type, idx))
         connection.commit()
     finally:
         connection.close()
 
 def delete_injection_data(idx):
-    connection = get_db_connection()
+    connection = get_db_connection_test()
     try:
         with connection.cursor() as cursor:
             sql = "DELETE FROM injection_data WHERE idx = %s"
@@ -165,21 +195,21 @@ def delete_injection_data(idx):
     finally:
         connection.close()
 
-def insert_injection_data(injection_time, injection_condition, review, chamber_id, chamber_type):
-    connection = get_db_connection()
+def insert_injection_data(injection_time, injection_condition, chamber_id, chamber_type):
+    connection = get_db_connection_test()
     try:
         with connection.cursor() as cursor:
             sql = """
-                INSERT INTO injection_data (injection_time, injection_condition, review, chamber_id, chamber_type)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO injection_data (injection_time, injection_condition, chamber_id, chamber_type)
+                VALUES (%s, %s, %s, %s)
             """
-            cursor.execute(sql, (injection_time, injection_condition, review, chamber_id, chamber_type))
+            cursor.execute(sql, (injection_time, injection_condition, chamber_id, chamber_type))
         connection.commit()
     finally:
         connection.close()
 
 def fetch_manufacturing_data(order_by_column, ascending):
-    connection = get_db_connection()
+    connection = get_db_connection_test()
     try:
         with connection.cursor() as cursor:
             order = "ASC" if ascending else "DESC"
@@ -217,7 +247,7 @@ def delete_manufacturing_data(idx):
     pass  # Replace with actual implementation
 
 def query_polymer_solvent(date):
-    connection = get_db_connection()
+    connection = get_db_connection_test()
 
     try:
         with connection.cursor() as cursor:
@@ -237,22 +267,7 @@ def query_polymer_solvent(date):
         connection.close()
     
     return results
-def get_db_connection_small():
-    try:
-        connection = pymysql.connect(
-            host='192.168.0.43',
-            user='pc_program',
-            password='tsei1234',
-            database='sensor_evaluation_system_4chamber',
-            port=3306,
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        print("Database connection successful")
-        return connection
-    except pymysql.MySQLError as e:
-        print(f"Error connecting to database: {e}")
-        return None
+    
 def query_sensor_data_small(start_time: datetime, end_time: datetime, chamber_sensor_data: dict):
     connection = get_db_connection_small()
 
@@ -314,7 +329,7 @@ def query_real_time_sensor_data_small(start_time: datetime, end_time: datetime, 
     return sensor_data
 
 def query_injection_conditions_small(start_time: datetime, end_time: datetime, sensor_ids: list):
-    connection = get_db_connection_small()
+    connection = get_db_connection_test()
 
     injection_data = {}
     
@@ -344,7 +359,7 @@ def query_injection_conditions_small(start_time: datetime, end_time: datetime, s
 
 
 def fetch_manufacturing_data_small(order_by_column, ascending):
-    connection = get_db_connection_small()
+    connection = get_db_connection_test()
     try:
         with connection.cursor() as cursor:
             order = "ASC" if ascending else "DESC"
@@ -382,7 +397,7 @@ def delete_manufacturing_data_small(idx):
     pass  # Replace with actual implementation
 
 def query_polymer_solvent_small(date):
-    connection = get_db_connection_small()
+    connection = get_db_connection_test()
 
     try:
         with connection.cursor() as cursor:
